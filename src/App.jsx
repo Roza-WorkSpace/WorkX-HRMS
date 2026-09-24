@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+
 import {
   LayoutDashboard,
   Users,
@@ -21,7 +22,7 @@ import {
   Eye,
   ChevronDown,
 } from "lucide-react";
-
+import logo from "./assets/logo.png";
 const initialEmployees = [
   {
     id: 1,
@@ -269,14 +270,20 @@ function App() {
     <div className="app">
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-header">
-          <div className="company-logo">
+           <img src={logo} alt="Company Logo"   style={{
+      width: "234px",
+      height: "203px",
+      objectFit: "contain"
+    }}/>
+          {/* <div className="company-logo">
+          
             <Users size={25} />
           </div>
 
           <div>
             <h2>HRMS</h2>
             <span>Employee Portal</span>
-          </div>
+          </div> */}
         </div>
 
         <nav className="sidebar-nav">

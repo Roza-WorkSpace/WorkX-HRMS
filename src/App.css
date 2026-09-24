@@ -40,7 +40,7 @@ button {
 .sidebar {
   width: 250px;
   min-height: 100vh;
-  background: #111827;
+  background: #1a5e5e;
   color: #ffffff;
   display: flex;
   flex-direction: column;

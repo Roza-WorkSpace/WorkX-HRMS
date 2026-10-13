@@ -61,12 +61,30 @@ export function LeaveMiniCard({ icon: Icon, title, count, bg, iconColor }) {
   );
 }
 
-export function EventRow({ date, title }) {
+export function EventRow({ date, title, isPast = false }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-      <div style={{ fontSize: "12px", fontWeight: "700", color: "#0066FF", width: "45px" }}>{date}</div>
-      <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#0066FF" }} />
-      <div style={{ fontSize: "13px", color: "#1e293b", fontWeight: "500" }}>{title}</div>
+    <div style={{ display: "flex", alignItems: "center", gap: "12px", opacity: isPast ? 0.45 : 1 }}>
+      <div style={{ fontSize: "12px", fontWeight: "700", color: isPast ? "#94a3b8" : "#0066FF", width: "45px" }}>
+        {date}
+      </div>
+      <div
+        style={{
+          width: "6px",
+          height: "6px",
+          borderRadius: "50%",
+          backgroundColor: isPast ? "#cbd5e1" : "#0066FF",
+        }}
+      />
+      <div
+        style={{
+          fontSize: "13px",
+          color: isPast ? "#94a3b8" : "#1e293b",
+          fontWeight: "500",
+          textDecoration: isPast ? "line-through" : "none",
+        }}
+      >
+        {title}
+      </div>
     </div>
   );
 }

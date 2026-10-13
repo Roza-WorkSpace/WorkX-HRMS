@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -84,13 +84,104 @@ const initialProfileState = {
   avatar: "",
 };
 
+const LEAVE_STORAGE_KEY = "workx_leave_history_v4";
+
+const DEFAULT_LEAVE_HISTORY = [
+  {
+    id: 1,
+    type: "Earned Leave",
+    from: "07 Oct 2026",
+    to: "07 Oct 2026",
+    days: 1,
+    reason: "Personal Work",
+    status: "Pending",
+  },
+  {
+    id: 2,
+    type: "Casual Leave",
+    from: "12 Oct 2026",
+    to: "14 Oct 2026",
+    days: 3,
+    reason: "Family Function",
+    status: "Pending",
+  },
+  {
+    id: 3,
+    type: "Sick Leave",
+    from: "02 Sep 2026",
+    to: "02 Sep 2026",
+    days: 1,
+    reason: "Viral Fever",
+    status: "Pending",
+  },
+];
+
+// UPDATED TO TOTAL 12 DAYS (4 + 3 + 5)
+const LEAVE_TOTALS = {
+  "Casual Leave": 4,
+  "Sick Leave": 3,
+  "Earned Leave": 5,
+};
+
+const INITIAL_USED_BALANCE = {
+  "Casual Leave": 0,
+  "Sick Leave": 0,
+  "Earned Leave": 0,
+};
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   const [activePage, setActivePage] = useState("dashboard");
   const [userProfile, setUserProfile] = useState(initialProfileState);
-  const [profileFormData, setProfileFormData] = useState(initialProfileState);
   const [profileSavedMsg, setProfileSavedMsg] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  // Shared Leave History State
+  const [leaveHistory, setLeaveHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem(LEAVE_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : DEFAULT_LEAVE_HISTORY;
+    } catch {
+      return DEFAULT_LEAVE_HISTORY;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(LEAVE_STORAGE_KEY, JSON.stringify(leaveHistory));
+  }, [leaveHistory]);
+
+  // Dynamic Leave Calculation Logic
+  const getUsedLeave = (leaveType) => {
+    const initialUsed = INITIAL_USED_BALANCE[leaveType] || 0;
+    const currentApproved = leaveHistory
+      .filter((l) => l.type === leaveType && l.status === "Approved")
+      .reduce((sum, l) => sum + Number(l.days || 0), 0);
+
+    return Math.max(initialUsed + currentApproved, 0);
+  };
+
+  const casualUsed = getUsedLeave("Casual Leave");
+  const casualTotal = LEAVE_TOTALS["Casual Leave"];
+  const casualRemaining = Math.max(casualTotal - casualUsed, 0);
+
+  const sickUsed = getUsedLeave("Sick Leave");
+  const sickTotal = LEAVE_TOTALS["Sick Leave"];
+  const sickRemaining = Math.max(sickTotal - sickUsed, 0);
+
+  const earnedUsed = getUsedLeave("Earned Leave");
+  const earnedTotal = LEAVE_TOTALS["Earned Leave"];
+  const earnedRemaining = Math.max(earnedTotal - earnedUsed, 0);
+
+  const totalCapacity = casualTotal + sickTotal + earnedTotal; // TOTAL: 12
+  const totalUsed = casualUsed + sickUsed + earnedUsed;
+  const totalRemaining = casualRemaining + sickRemaining + earnedRemaining;
+
+  const leaveSummary = {
+    casual: { remaining: casualRemaining, total: casualTotal, used: casualUsed },
+    sick: { remaining: sickRemaining, total: sickTotal, used: sickUsed },
+    earned: { remaining: earnedRemaining, total: earnedTotal, used: earnedUsed },
+    overall: { remaining: totalRemaining, total: totalCapacity, used: totalUsed },
+  };
 
   // Shared Tasks State
   const [tasks, setTasks] = useState([
@@ -138,7 +229,6 @@ export default function App() {
 
   const handleAddTask = (text, dateValue = new Date().toISOString().split("T")[0]) => {
     const todayStr = new Date().toISOString().split("T")[0];
-
     const yesterdayObj = new Date();
     yesterdayObj.setDate(yesterdayObj.getDate() - 1);
     const yesterdayStr = yesterdayObj.toISOString().split("T")[0];
@@ -187,9 +277,7 @@ export default function App() {
   };
 
   const handleToggleTask = (id) => {
-    setTasks(
-      tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
-    );
+    setTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   };
 
   const handleDeleteTask = (id) => {
@@ -200,7 +288,7 @@ export default function App() {
 
   const navigate = (page) => {
     setActivePage(page);
-    setIsMobileOpen(false); // Close sidebar on mobile option select
+    setIsMobileOpen(false);
   };
 
   if (!isAuthenticated) {
@@ -230,7 +318,6 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Mobile Backdrop Overlay */}
       {isMobileOpen && (
         <div
           className="mobile-overlay"
@@ -238,7 +325,7 @@ export default function App() {
         />
       )}
 
-      {/* DARK SIDEBAR */}
+      {/* SIDEBAR */}
       <aside className={`sidebar ${isMobileOpen ? "sidebar-open" : ""}`}>
         <div>
           <div style={{ padding: "0 8px 32px 8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -269,7 +356,6 @@ export default function App() {
           </nav>
         </div>
 
-        {/* LOGOUT BUTTON */}
         <div className="sidebar-bottom">
           <button onClick={handleLogout} className="logout-button">
             <LogOut size={18} color="#ef4444" />
@@ -278,7 +364,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* MAIN CONTENT WRAPPER */}
+      {/* MAIN CONTENT */}
       <main className="main-content">
         <header className="topbar">
           <div className="topbar-left">
@@ -307,7 +393,6 @@ export default function App() {
               />
             </div>
 
-            {/* TOP RIGHT PROFILE AVATAR & DETAILS */}
             <div
               onClick={() => navigate("profile")}
               style={{
@@ -338,7 +423,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* CONTENT PAGES ROUTING */}
         <div className="page-content">
           {activePage === "dashboard" && (
             <DashboardPage
@@ -348,6 +432,7 @@ export default function App() {
               onAddTask={handleAddTask}
               onToggleTask={handleToggleTask}
               onDeleteTask={handleDeleteTask}
+              leaveSummary={leaveSummary}
             />
           )}
           {activePage === "tasks" && (
@@ -367,7 +452,13 @@ export default function App() {
             />
           )}
           {activePage === "attendance" && <AttendancePage />}
-          {activePage === "leave" && <LeavePage />}
+          {activePage === "leave" && (
+            <LeavePage
+              leaveHistory={leaveHistory}
+              setLeaveHistory={setLeaveHistory}
+              leaveSummary={leaveSummary}
+            />
+          )}
         </div>
       </main>
     </div>

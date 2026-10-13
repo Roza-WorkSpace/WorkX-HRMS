@@ -1,24 +1,71 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
   XCircle,
-  Home,
   Clock,
   ChevronDown,
   X,
 } from "lucide-react";
 
 export default function AttendancePage() {
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 9, 1)); // October 2026
+  const [currentDate, setCurrentDate] = useState(new Date(2026, 9, 1));
   const [showAllLogsModal, setShowAllLogsModal] = useState(false);
 
-  // DROPDOWN FILTER STATE
   const [summaryRange, setSummaryRange] = useState("This Month");
   const [isRangeDropdownOpen, setIsRangeDropdownOpen] = useState(false);
 
-  // Dynamic Month Navigation Handlers
+  const [attendanceRecords, setAttendanceRecords] = useState(() => {
+    const saved = localStorage.getItem("workx_attendance_records");
+    if (saved) return JSON.parse(saved);
+    return {
+      "2026-10-01": { status: "present", time: "09:08 AM - 06:10 PM" },
+      "2026-10-02": { status: "present", time: "09:12 AM - 06:01 PM" },
+      "2026-10-05": { status: "present", time: "09:00 AM - 06:00 PM" },
+      "2026-10-07": { status: "present", time: "09:15 AM - 06:00 PM" },
+      "2026-10-12": { status: "present", time: "09:00 AM - 05:45 PM" },
+    };
+  });
+
+  // Sync approved leave requests into attendance records automatically
+  useEffect(() => {
+    const handleStorageChange = () => {
+      try {
+        const savedRecords = localStorage.getItem("workx_attendance_records");
+        if (savedRecords) setAttendanceRecords(JSON.parse(savedRecords));
+
+        const savedLeaveHistory = localStorage.getItem("workx_leave_history_v4");
+        if (savedLeaveHistory) {
+          const leaveList = JSON.parse(savedLeaveHistory);
+          setAttendanceRecords((prev) => {
+            const updated = { ...prev };
+            leaveList.forEach((leave) => {
+              if (leave.status === "Approved") {
+                const fromDateObj = new Date(leave.from);
+                const toDateObj = new Date(leave.to);
+                
+                let curr = new Date(fromDateObj);
+                while (curr <= toDateObj) {
+                  const dateKey = curr.toISOString().split("T")[0];
+                  updated[dateKey] = { status: "absent", time: leave.type };
+                  curr.setDate(curr.getDate() + 1);
+                }
+              }
+            });
+            return updated;
+          });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    handleStorageChange();
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
   const handlePrevMonth = () => {
     setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
   };
@@ -32,7 +79,6 @@ export default function AttendancePage() {
     year: "numeric",
   });
 
-  // Dynamic Calendar Grid Calculation
   const generateCalendarDays = () => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -43,7 +89,6 @@ export default function AttendancePage() {
 
     const days = [];
 
-    // 1. Previous month leading days
     for (let i = firstDayOfMonth - 1; i >= 0; i--) {
       days.push({
         day: daysInPrevMonth - i,
@@ -52,44 +97,29 @@ export default function AttendancePage() {
       });
     }
 
-    // 2. Current month days
     const today = new Date();
     for (let day = 1; day <= daysInCurrentMonth; day++) {
+      const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       const isToday =
         today.getFullYear() === year &&
         today.getMonth() === month &&
         today.getDate() === day;
 
+      const record = attendanceRecords[dateKey];
       let status = "normal";
-      let checkInTime = null;
-      let wfhLabel = null;
 
-      if (year === 2026 && month === 9) {
-        if ([1, 5, 7, 12, 16, 26].includes(day)) status = "present";
-        if (day === 15) status = "absent";
-        if (day === 21) {
-          status = "wfh";
-          wfhLabel = "Work From Home";
-        }
-        if (day === 2) {
-          status = "checkin";
-          checkInTime = "09:12 AM";
-        }
-        if (day === 24) status = "today";
-      } else if (isToday) {
-        status = "today";
-      }
+      if (record?.status === "present") status = "present";
+      else if (record?.status === "absent") status = "absent";
+      else if (isToday) status = "today";
 
       days.push({
         day,
         status,
-        checkInTime,
-        wfhLabel,
+        checkInTime: record?.time || null,
         isCurrentMonth: true,
       });
     }
 
-    // 3. Next month trailing days
     const remainingGridCells = 35 - days.length > 0 ? 35 - days.length : 42 - days.length;
     for (let day = 1; day <= remainingGridCells; day++) {
       days.push({
@@ -104,7 +134,6 @@ export default function AttendancePage() {
 
   const calendarDays = generateCalendarDays();
 
-  // Helper function to resolve dynamic tile styles based on status
   const getTileStyles = (item) => {
     if (!item.isCurrentMonth) {
       return {
@@ -124,12 +153,6 @@ export default function AttendancePage() {
           backgroundColor: "#fef2f2",
           border: "1px solid #fecaca",
         };
-      case "wfh":
-        return {
-          backgroundColor: "#f3e8ff",
-          border: "1px solid #e9d5ff",
-        };
-      case "checkin":
       case "today":
         return {
           backgroundColor: "#eff6ff",
@@ -143,42 +166,29 @@ export default function AttendancePage() {
     }
   };
 
-  // Dynamic Attendance Summary Metrics Dataset
-  const summaryMetricsMap = {
-    "This Month": { present: "20", absent: "0", wfh: "3", total: "23" },
-    "Last Month": { present: "21", absent: "1", wfh: "2", total: "24" },
-  };
-
-  const activeMetrics = summaryMetricsMap[summaryRange] || summaryMetricsMap["This Month"];
+  const presentDaysCount = Object.values(attendanceRecords).filter((r) => r.status === "present").length;
+  const absentDaysCount = Object.values(attendanceRecords).filter((r) => r.status === "absent").length;
 
   const summaryCards = [
     {
       title: "Present",
-      value: activeMetrics.present,
+      value: String(presentDaysCount),
       unit: "days",
       icon: CheckCircle2,
       bgColor: "#ecfdf5",
       iconColor: "#10b981",
     },
     {
-      title: "Absent",
-      value: activeMetrics.absent,
+      title: "Absent / Leave",
+      value: String(absentDaysCount),
       unit: "days",
       icon: XCircle,
       bgColor: "#fef2f2",
       iconColor: "#ef4444",
     },
     {
-      title: "Work From Home",
-      value: activeMetrics.wfh,
-      unit: "days",
-      icon: Home,
-      bgColor: "#f3e8ff",
-      iconColor: "#a855f7",
-    },
-    {
       title: "Total Working Days",
-      value: activeMetrics.total,
+      value: "21",
       unit: "days",
       icon: Clock,
       bgColor: "#eff6ff",
@@ -186,22 +196,18 @@ export default function AttendancePage() {
     },
   ];
 
-  // Expanded Punch Logs List
-  const allLogs = [
-    { date: "02 Oct 2026", day: "Thursday", time: "09:12 AM - 06:01 PM", duration: "8h 49m", type: "present" },
-    { date: "01 Oct 2026", day: "Wednesday", time: "09:08 AM - 06:10 PM", duration: "9h 02m", type: "present" },
-    { date: "30 Sep 2026", day: "Tuesday", time: "09:15 AM - 06:00 PM", duration: "8h 45m", type: "present" },
-    { date: "29 Sep 2026", day: "Monday", time: "09:21 AM - 06:05 PM", duration: "8h 44m", type: "present" },
-    { date: "26 Sep 2026", day: "Friday", time: "Work From Home", duration: "-", type: "wfh" },
-    { date: "25 Sep 2026", day: "Thursday", time: "09:10 AM - 06:00 PM", duration: "8h 50m", type: "present" },
-    { date: "24 Sep 2026", day: "Wednesday", time: "09:05 AM - 06:15 PM", duration: "9h 10m", type: "present" },
-  ];
+  const allLogs = Object.entries(attendanceRecords).map(([dateStr, data]) => ({
+    date: new Date(dateStr).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+    day: new Date(dateStr).toLocaleDateString("en-US", { weekday: "long" }),
+    time: data.time || "-",
+    duration: data.status === "absent" ? "On Leave" : "8h 30m",
+    type: data.status,
+  }));
 
   const recentLogs = allLogs.slice(0, 5);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      {/* INJECTED MOBILE RESPONSIVE STYLES */}
       <style>{`
         .attendance-main-grid {
           display: grid;
@@ -324,7 +330,7 @@ export default function AttendancePage() {
         }
       `}</style>
 
-      {/* DARK BANNER HEADER WITHOUT BUTTON */}
+      {/* DARK BANNER HEADER */}
       <div
         style={{
           backgroundColor: "#080e1e",
@@ -343,8 +349,6 @@ export default function AttendancePage() {
 
       {/* MAIN LAYOUT GRID */}
       <div className="attendance-main-grid">
-        
-        {/* LEFT COLUMN: CALENDAR BOARD */}
         <div
           className="attendance-calendar-card"
           style={{
@@ -355,7 +359,6 @@ export default function AttendancePage() {
             boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
           }}
         >
-          {/* CALENDAR NAVIGATION CONTROLS */}
           <div
             className="calendar-header-container"
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}
@@ -407,7 +410,6 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          {/* WEEKDAY HEADERS */}
           <div
             style={{
               display: "grid",
@@ -422,7 +424,6 @@ export default function AttendancePage() {
             <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
           </div>
 
-          {/* SYNCHRONIZED CALENDAR GRID */}
           <div className="calendar-grid-container" style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "8px" }}>
             {calendarDays.map((item, index) => {
               const isOtherMonth = !item.isCurrentMonth;
@@ -478,30 +479,7 @@ export default function AttendancePage() {
                           color: "#b91c1c",
                         }}
                       >
-                        Absent
-                      </div>
-                    )}
-                    {item.status === "wfh" && (
-                      <div
-                        className="calendar-tile-status"
-                        style={{
-                          backgroundColor: "#e9d5ff",
-                          color: "#7e22ce",
-                        }}
-                      >
-                        {item.wfhLabel}
-                      </div>
-                    )}
-                    {item.status === "checkin" && (
-                      <div
-                        className="calendar-tile-status"
-                        style={{
-                          backgroundColor: "#0066FF",
-                          color: "#ffffff",
-                          fontWeight: "500",
-                        }}
-                      >
-                        Check In {item.checkInTime}
+                        Absent / Leave
                       </div>
                     )}
                   </div>
@@ -510,7 +488,6 @@ export default function AttendancePage() {
             })}
           </div>
 
-          {/* CALENDAR LEGEND FOOTER */}
           <div className="attendance-legend-container">
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#10b981", flexShrink: 0 }} />
@@ -518,11 +495,7 @@ export default function AttendancePage() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#ef4444", flexShrink: 0 }} />
-              <span>Absent</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#a855f7", flexShrink: 0 }} />
-              <span>Work From Home</span>
+              <span>Absent / Leave</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#0066FF", flexShrink: 0 }} />
@@ -531,10 +504,8 @@ export default function AttendancePage() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: SUMMARY CARDS & RECENT LOGS */}
+        {/* RIGHT COLUMN */}
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          
-          {/* SUMMARY CARDS CONTAINER */}
           <div
             style={{
               backgroundColor: "#ffffff",
@@ -549,7 +520,6 @@ export default function AttendancePage() {
                 Attendance Summary
               </h3>
 
-              {/* FUNCTIONAL SUMMARY DROPDOWN */}
               <div style={{ position: "relative" }}>
                 <button
                   onClick={() => setIsRangeDropdownOpen((prev) => !prev)}
@@ -570,7 +540,6 @@ export default function AttendancePage() {
                   {summaryRange} <ChevronDown size={14} />
                 </button>
 
-                {/* DROPDOWN MENU PANEL */}
                 {isRangeDropdownOpen && (
                   <div
                     style={{
@@ -658,7 +627,6 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          {/* RECENT LOGS CONTAINER */}
           <div
             style={{
               backgroundColor: "#ffffff",
@@ -706,7 +674,7 @@ export default function AttendancePage() {
                         width: "8px",
                         height: "8px",
                         borderRadius: "50%",
-                        backgroundColor: log.type === "wfh" ? "#a855f7" : "#10b981",
+                        backgroundColor: log.type === "absent" ? "#ef4444" : "#10b981",
                         flexShrink: 0,
                       }}
                     />
@@ -717,8 +685,8 @@ export default function AttendancePage() {
                   </div>
 
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "12px", fontWeight: "500", color: log.type === "wfh" ? "#a855f7" : "#334155" }}>
-                      {log.time}
+                    <div style={{ fontSize: "12px", fontWeight: "500", color: log.type === "absent" ? "#ef4444" : "#334155" }}>
+                      {log.type === "absent" ? `Leave (${log.time})` : log.time}
                     </div>
                     <div style={{ fontSize: "11px", color: "#94a3b8" }}>{log.duration}</div>
                   </div>
@@ -729,7 +697,6 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {/* VIEW ALL RECENT LOGS MODAL */}
       {showAllLogsModal && (
         <div
           style={{
@@ -809,7 +776,7 @@ export default function AttendancePage() {
                           width: "10px",
                           height: "10px",
                           borderRadius: "50%",
-                          backgroundColor: log.type === "wfh" ? "#a855f7" : "#10b981",
+                          backgroundColor: log.type === "absent" ? "#ef4444" : "#10b981",
                         }}
                       />
                       <div>
@@ -823,10 +790,10 @@ export default function AttendancePage() {
                         style={{
                           fontSize: "13px",
                           fontWeight: "600",
-                          color: log.type === "wfh" ? "#a855f7" : "#334155",
+                          color: log.type === "absent" ? "#ef4444" : "#334155",
                         }}
                       >
-                        {log.time}
+                        {log.type === "absent" ? `Leave (${log.time})` : log.time}
                       </div>
                       <div style={{ fontSize: "12px", color: "#94a3b8" }}>{log.duration}</div>
                     </div>

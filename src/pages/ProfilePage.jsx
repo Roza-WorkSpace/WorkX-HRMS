@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -23,6 +23,8 @@ import {
 export default function ProfilePage({ userProfile, setUserProfile, savedMsg, setProfileSavedMsg }) {
   const fileInputRef = useRef(null);
   const [activeTab, setActiveTab] = useState("information"); // 'information' | 'organisation'
+  // Keep each employee's locally saved profile separate in this browser.
+  const profileStorageKey = `employee-profile:${userProfile?.id || userProfile?.employeeId || userProfile?.email || "default"}`;
 
   // Track open accordion sections
   const [openSections, setOpenSections] = useState({
@@ -118,30 +120,102 @@ export default function ProfilePage({ userProfile, setUserProfile, savedMsg, set
     teamLeadName: "",
     teamLeadEmail: "",
     reportingManagerEmail: "",
+    // Load every previously saved profile field instead of resetting sections.
+    ...(userProfile?.profileDetails || {}),
   });
 
-  const [experiences, setExperiences] = useState([
-    {
-      id: Date.now(),
-      previousCompany: "",
-      previousDesignation: "",
-      totalExperienceYears: "",
-      previousJoiningDate: "",
-      previousRelievingDate: "",
-    },
-  ]);
+  const [experiences, setExperiences] = useState(() =>
+    Array.isArray(userProfile?.experiences) && userProfile.experiences.length
+      ? userProfile.experiences
+      : [{
+          id: Date.now(),
+          previousCompany: "",
+          previousDesignation: "",
+          totalExperienceYears: "",
+          previousJoiningDate: "",
+          previousRelievingDate: "",
+        }]
+  );
+
+  // Keep the page in sync when the parent loads or changes the employee record.
+  useEffect(() => {
+    if (!userProfile) return;
+    setFormData((prev) => ({
+      ...prev,
+      ...(userProfile.profileDetails || {}),
+      avatar: userProfile.avatar ?? userProfile.profileDetails?.avatar ?? prev.avatar,
+      firstName: userProfile.profileDetails?.firstName ?? (userProfile.name ? userProfile.name.split(" ")[0] : prev.firstName),
+      lastName: userProfile.profileDetails?.lastName ?? (userProfile.name ? userProfile.name.split(" ").slice(1).join(" ") : prev.lastName),
+      role: userProfile.profileDetails?.role ?? userProfile.role ?? prev.role,
+      location: userProfile.profileDetails?.location ?? userProfile.location ?? prev.location,
+      startDate: userProfile.profileDetails?.startDate ?? userProfile.joinedDate ?? prev.startDate,
+      officialEmail: userProfile.profileDetails?.officialEmail ?? userProfile.email ?? prev.officialEmail,
+      personalPhone: userProfile.profileDetails?.personalPhone ?? userProfile.phone ?? prev.personalPhone,
+      department: userProfile.profileDetails?.department ?? userProfile.department ?? prev.department,
+    }));
+    if (Array.isArray(userProfile.experiences) && userProfile.experiences.length) {
+      setExperiences(userProfile.experiences);
+    }
+  }, [userProfile]);
+
+  // Restore the saved profile whenever the active employee changes.
+  // Each employee has a separate browser-storage record.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const restoreProfile = () => {
+      try {
+        const stored = window.localStorage.getItem(profileStorageKey);
+        if (!stored) return;
+
+        const parsed = JSON.parse(stored);
+        if (parsed?.profileDetails) {
+          setFormData((prev) => ({ ...prev, ...parsed.profileDetails }));
+        }
+        if (Array.isArray(parsed?.experiences)) {
+          setExperiences(parsed.experiences);
+        }
+
+        if (setUserProfile) {
+          setUserProfile((prev) => ({
+            ...(prev || {}),
+            ...parsed,
+            profileDetails: {
+              ...(prev?.profileDetails || {}),
+              ...(parsed?.profileDetails || {}),
+            },
+            experiences: Array.isArray(parsed?.experiences)
+              ? parsed.experiences
+              : (prev?.experiences || []),
+          }));
+        }
+      } catch (error) {
+        console.error("Unable to restore saved profile:", error);
+      }
+    };
+
+    restoreProfile();
+
+    // Keep this employee's profile in sync across browser tabs.
+    const handleStorageChange = (event) => {
+      if (event.key === profileStorageKey) restoreProfile();
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [profileStorageKey, setUserProfile]);
 
   // Handle Profile Picture File Change
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const imageUrl = URL.createObjectURL(file);
-      setFormData((prev) => ({ ...prev, avatar: imageUrl }));
-
-      // Sync with global state so header updates instantly
-      if (setUserProfile) {
-        setUserProfile((prev) => ({ ...prev, avatar: imageUrl }));
-      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const imageUrl = String(reader.result || "");
+        setFormData((prev) => ({ ...prev, avatar: imageUrl }));
+        if (setUserProfile) setUserProfile((prev) => ({ ...prev, avatar: imageUrl }));
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -224,7 +298,26 @@ export default function ProfilePage({ userProfile, setUserProfile, savedMsg, set
       phone: formData.personalPhone,
       department: formData.department,
       avatar: formData.avatar,
+      // Preserve all personal, education, identity, family, bank and organisation fields.
+      profileDetails: { ...(userProfile?.profileDetails || {}), ...formData },
+      experiences: experiences,
     };
+
+    // Save to browser storage so entered details survive a refresh.
+    try {
+      localStorage.setItem(profileStorageKey, JSON.stringify(updatedProfile));
+      // Notify other components in this tab that this employee's profile changed.
+      window.dispatchEvent(
+        new CustomEvent("employeeProfileUpdated", {
+          detail: { employeeKey: profileStorageKey, profile: updatedProfile },
+        })
+      );
+    } catch (error) {
+      console.error("Unable to save profile in browser storage:", error);
+      if (typeof window !== "undefined") {
+        alert("Your profile is too large to save in this browser. Please reduce the profile photo size or connect the save action to your backend.");
+      }
+    }
 
     // Sync up to App.jsx global state
     if (setUserProfile) {
@@ -247,14 +340,14 @@ export default function ProfilePage({ userProfile, setUserProfile, savedMsg, set
   };
 
   const isSectionFilled = (keys) => {
-    return keys.some((key) => formData[key] && formData[key].trim() !== "");
+    return keys.some((key) => formData[key] !== undefined && formData[key] !== null && String(formData[key]).trim() !== "");
   };
 
   const hasExperiencesFilled = experiences.some(
     (exp) =>
-      exp.previousCompany.trim() !== "" ||
-      exp.previousDesignation.trim() !== "" ||
-      exp.totalExperienceYears.trim() !== ""
+      String(exp.previousCompany || "").trim() !== "" ||
+      String(exp.previousDesignation || "").trim() !== "" ||
+      String(exp.totalExperienceYears || "").trim() !== ""
   );
 
   const renderAccordionHeader = (title, sectionKey, IconComponent, hasData) => {
@@ -1216,8 +1309,8 @@ function FormField({ label, name, value, isEditing, onChange, placeholder = "Ent
           placeholder={placeholder}
           style={inputStyle}
         />
-      ) : value && value.trim() !== "" ? (
-        <strong style={{ color: "#1e293b", fontSize: "13.5px" }}>{value}</strong>
+      ) : value !== undefined && value !== null && String(value).trim() !== "" ? (
+        <strong style={{ color: "#1e293b", fontSize: "13.5px", overflowWrap: "anywhere" }}>{String(value)}</strong>
       ) : (
         <span
           style={{

@@ -1,7 +1,10 @@
+
+/* ================= ROOT VARIABLES ================= */
+
 :root {
   --text: #6b6375;
   --text-h: #08060d;
-  --bg: #fff;
+  --bg: #ffffff;
   --border: #e5e4e7;
   --code-bg: #f4f3ec;
   --accent: #aa3bff;
@@ -9,62 +12,67 @@
   --accent-border: rgba(170, 59, 255, 0.5);
   --social-bg: rgba(244, 243, 236, 0.5);
   --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+    rgba(0, 0, 0, 0.1) 0 10px 15px -3px,
+    rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --heading: system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
+  font-family: var(--sans);
+  font-size: 18px;
+  line-height: 1.45;
   letter-spacing: 0.18px;
-  color-scheme: light dark;
+
   color: var(--text);
   background: var(--bg);
+
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+/* ================= GLOBAL ================= */
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
+  width: 100%;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
 }
 
 #root {
   width: 1126px;
   max-width: 100%;
+  min-height: 100vh;
   margin: 0 auto;
   text-align: center;
   border-inline: 1px solid var(--border);
-  min-height: 100svh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  overflow-x: clip;
 }
+
+/* ================= HEADINGS ================= */
 
 h1,
 h2 {
@@ -74,26 +82,26 @@ h2 {
 }
 
 h1 {
-  font-size: 56px;
+  font-size: clamp(32px, 5vw, 56px);
   letter-spacing: -1.68px;
+  line-height: 1.15;
   margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+  overflow-wrap: break-word;
 }
+
 h2 {
-  font-size: 24px;
-  line-height: 118%;
+  font-size: clamp(20px, 3vw, 24px);
+  line-height: 1.18;
   letter-spacing: -0.24px;
   margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
 }
+
 p {
   margin: 0;
+  overflow-wrap: break-word;
 }
+
+/* ================= CODE ================= */
 
 code,
 .counter {
@@ -101,11 +109,170 @@ code,
   display: inline-flex;
   border-radius: 4px;
   color: var(--text-h);
+  max-width: 100%;
 }
 
 code {
   font-size: 15px;
-  line-height: 135%;
+  line-height: 1.35;
   padding: 4px 8px;
   background: var(--code-bg);
+  overflow-wrap: anywhere;
+}
+
+/* ================= GENERAL RESPONSIVE ELEMENTS ================= */
+
+img,
+video,
+iframe,
+svg {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  max-width: 100%;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* ================= TABLET ================= */
+
+@media (max-width: 1024px) {
+  :root {
+    font-size: 16px;
+  }
+
+  #root {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  h1 {
+    font-size: 36px;
+    letter-spacing: -1px;
+    margin: 20px 0;
+  }
+
+  h2 {
+    font-size: 20px;
+  }
+
+  code {
+    font-size: 14px;
+  }
+}
+
+/* ================= MOBILE ================= */
+
+@media (max-width: 768px) {
+  :root {
+    font-size: 15px;
+  }
+
+  #root {
+    width: 100%;
+    border-inline: none;
+    min-height: 100svh;
+    padding: 0;
+  }
+
+  h1 {
+    font-size: clamp(28px, 7vw, 36px);
+    letter-spacing: -0.8px;
+    margin: 18px 0;
+  }
+
+  h2 {
+    font-size: 19px;
+  }
+
+  p {
+    font-size: 14px;
+  }
+
+  code {
+    font-size: 13px;
+    padding: 4px 6px;
+  }
+}
+
+/* ================= SMALL MOBILE ================= */
+
+@media (max-width: 480px) {
+  :root {
+    font-size: 14px;
+  }
+
+  h1 {
+    font-size: 28px;
+    letter-spacing: -0.6px;
+    margin: 16px 0;
+  }
+
+  h2 {
+    font-size: 18px;
+  }
+
+  code {
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ================= VERY SMALL SCREENS ================= */
+
+@media (max-width: 360px) {
+  h1 {
+    font-size: 25px;
+  }
+
+  h2 {
+    font-size: 17px;
+  }
+
+  #root {
+    padding: 0;
+  }
+}
+
+/* ================= DARK MODE ================= */
+
+/* Dark mode is opt-in using the .dark-theme class.
+   This avoids automatically changing your WorkX colors. */
+
+.dark-theme {
+  --text: #9ca3af;
+  --text-h: #f3f4f6;
+  --bg: #16171d;
+  --border: #2e303a;
+  --code-bg: #1f2028;
+  --accent: #c084fc;
+  --accent-bg: rgba(192, 132, 252, 0.15);
+  --accent-border: rgba(192, 132, 252, 0.5);
+  --social-bg: rgba(47, 48, 58, 0.5);
+  --shadow:
+    rgba(0, 0, 0, 0.4) 0 10px 15px -3px,
+    rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+}
+
+.dark-theme #social .button-icon {
+  filter: invert(1) brightness(2);
+}
+
+/* ================= ACCESSIBILITY ================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

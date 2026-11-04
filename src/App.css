@@ -1,5 +1,15 @@
+
+/* ================= GLOBAL ================= */
+
 * {
   box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
 }
 
 :root {
@@ -14,24 +24,44 @@
 body {
   margin: 0;
   min-width: 320px;
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
   background: #f6f7fb;
   color: #1f2937;
 }
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+  max-width: 100%;
 }
 
 button {
   cursor: pointer;
 }
 
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: clip;
+}
+
 .app {
   min-height: 100vh;
+  width: 100%;
   display: flex;
   position: relative;
+  overflow-x: clip;
 }
 
 /* ================= SIDEBAR ================= */
@@ -51,11 +81,14 @@ button {
   z-index: 100;
   padding: 24px 16px;
   transition: transform 0.3s ease-in-out;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-shrink: 0;
 }
 
 .nav-item {
   width: 100%;
-  height: 45px;
+  min-height: 45px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -87,7 +120,7 @@ button {
 
 .logout-button {
   width: 100%;
-  height: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -121,17 +154,20 @@ button {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
   transition: margin-left 0.3s ease, width 0.3s ease;
 }
 
-/* STICKY TOPBAR CONFIGURATION */
+/* ================= TOPBAR ================= */
+
 .topbar {
-  height: 64px;
+  min-height: 64px;
   background: #ffffff;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 0 32px;
   position: sticky;
   top: 0;
@@ -143,6 +179,11 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.admin-info {
+  min-width: 0;
 }
 
 .admin-info strong,
@@ -163,6 +204,9 @@ button {
 .page-content {
   padding: 28px 32px;
   flex: 1;
+  width: 100%;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .mobile-menu-button {
@@ -172,6 +216,7 @@ button {
   color: #374151;
   padding: 6px;
   border-radius: 6px;
+  flex-shrink: 0;
 }
 
 .mobile-menu-button:hover {
@@ -193,6 +238,7 @@ button {
   gap: 8px;
   font-weight: 600;
   font-size: 13px;
+  max-width: 100%;
 }
 
 .primary-button {
@@ -204,15 +250,18 @@ button {
   background: #0052cc;
 }
 
-/* ================= DASHBOARD & BANNER ================= */
+/* ================= DASHBOARD BANNER ================= */
 
 .dashboard-banner {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 20px;
   background-color: #eef2ff;
   border-radius: 16px;
   padding: 24px 32px;
+  width: 100%;
+  min-width: 0;
 }
 
 .clock-widget {
@@ -226,31 +275,49 @@ button {
   gap: 16px;
   border: 1px solid #ffffff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  max-width: 100%;
 }
 
-/* Desktop Grid Layouts */
+/* ================= DASHBOARD GRIDS ================= */
+
 .metric-cards-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
+  width: 100%;
+  min-width: 0;
 }
 
 .dashboard-three-col {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 0.8fr;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr);
   gap: 20px;
+  width: 100%;
+  min-width: 0;
 }
 
 .dashboard-two-col {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
+  width: 100%;
+  min-width: 0;
 }
+
+.metric-cards-grid > *,
+.dashboard-three-col > *,
+.dashboard-two-col > * {
+  min-width: 0;
+}
+
+/* ================= ATTENDANCE ================= */
 
 .attendance-calendar-grid {
   display: flex;
   gap: 20px;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .calendar-legend-box {
@@ -262,22 +329,27 @@ button {
   min-width: 170px;
 }
 
+/* ================= LEAVE & QUICK ACTIONS ================= */
+
 .leave-cards-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  width: 100%;
 }
 
 .quick-actions-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  width: 100%;
 }
 
 .quick-action-btn {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 14px 16px;
   border-radius: 10px;
   border: none;
@@ -285,21 +357,27 @@ button {
   font-size: 13px;
   cursor: pointer;
   transition: transform 0.15s ease;
+  min-width: 0;
 }
 
 .quick-action-btn:hover {
   transform: translateY(-2px);
 }
 
+/* ================= PROFILE ================= */
+
 .profile-container {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
+  width: 100%;
+  min-width: 0;
 }
 
 .table-wrapper {
   width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -319,6 +397,7 @@ table {
   justify-content: center;
   background: #03091e;
   padding: 20px;
+  width: 100%;
 }
 
 .auth-card {
@@ -330,7 +409,7 @@ table {
   text-align: center;
 }
 
-/* ================= USER OVERVIEW / PROFILE HEADER RESPONSIVENESS ================= */
+/* ================= DARK PROFILE HEADER ================= */
 
 .dark-header-card {
   background-color: #030712;
@@ -339,6 +418,8 @@ table {
   padding: 24px;
   border: 1px solid #1e293b;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  min-width: 0;
 }
 
 .profile-info-section {
@@ -354,6 +435,7 @@ table {
   gap: 20px;
   align-items: center;
   min-width: 260px;
+  max-width: 100%;
 }
 
 .dark-details-grid {
@@ -366,6 +448,7 @@ table {
   border: 1px solid #1e293b;
   font-size: 13px;
   flex: 1;
+  min-width: 0;
 }
 
 .profile-tabs-container {
@@ -374,75 +457,50 @@ table {
   margin-top: 24px;
   padding-top: 16px;
   border-top: 1px solid #1e293b;
+  flex-wrap: wrap;
 }
 
 .dark-header-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 16px;
   background-color: #0f172a;
   padding: 20px;
   border-radius: 12px;
   border: 1px solid #1e293b;
+  min-width: 0;
 }
 
-/* Screen sizes <= 768px (Tablets) */
-@media (max-width: 768px) {
-  .dark-header-card {
-    padding: 16px;
-  }
-
-  .profile-info-section {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 16px;
-  }
-
-  .profile-avatar-details {
-    min-width: 100%;
-  }
-}
-
-/* Screen sizes <= 480px (Mobile Phones) */
-@media (max-width: 480px) {
-  .profile-avatar-details {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 12px;
-  }
-
-  .dark-details-grid {
-    grid-template-columns: 1fr;
-    padding: 14px 16px;
-    gap: 12px;
-  }
-
-  .profile-tabs-container {
-    flex-direction: column;
-  }
-
-  .profile-tabs-container button {
-    width: 100%;
-    text-align: center;
-  }
-}
-
-/* ================= MEDIA QUERIES (RESPONSIVENESS) ================= */
+/* ================= OVERLAY ================= */
 
 .mobile-overlay {
   display: none;
 }
 
+/* ================= TABLET / SMALL LAPTOP ================= */
+
 @media (max-width: 1100px) {
   .dashboard-three-col {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-container {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .page-content {
+    padding: 24px;
   }
 }
+
+/* ================= TABLET ================= */
 
 @media (max-width: 868px) {
   .sidebar {
     transform: translateX(-100%);
+    width: 260px;
+    max-width: 85vw;
   }
 
   .sidebar.sidebar-open {
@@ -469,24 +527,29 @@ table {
 
   .mobile-menu-button {
     display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .topbar {
-    padding: 0 16px;
+    padding: 0 20px;
   }
 
   .page-content {
-    padding: 16px;
+    padding: 20px;
   }
 
   .admin-info {
     display: none;
   }
 
-  .metric-cards-grid,
+  .metric-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-three-col,
   .dashboard-two-col {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .attendance-calendar-grid {
@@ -502,8 +565,25 @@ table {
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: space-between;
+    min-width: 0;
+  }
+
+  .profile-container {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-info-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .profile-avatar-details {
+    min-width: 100%;
   }
 }
+
+/* ================= MOBILE ================= */
 
 @media (max-width: 768px) {
   .dashboard-banner {
@@ -515,19 +595,356 @@ table {
 
   .clock-widget {
     width: 100%;
-    flex-direction: column;
-    align-items: flex-end;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
     gap: 10px;
+  }
+
+  .metric-cards-grid,
+  .dashboard-three-col,
+  .dashboard-two-col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .leave-cards-grid,
+  .quick-actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dark-header-card {
+    padding: 16px;
+  }
+
+  .dark-details-grid {
+    gap: 12px;
+  }
+
+  .profile-tabs-container {
+    gap: 8px;
+  }
+
+  .auth-card {
+    padding: 28px 22px;
+  }
+
+  .page-content {
+    padding: 16px;
+  }
+
+  .topbar {
+    min-height: 60px;
+    padding: 0 16px;
+  }
+}
+
+/* ================= SMALL MOBILE ================= */
+
+@media (max-width: 540px) {
+  .page-content {
+    padding: 12px;
+  }
+
+  .topbar {
+    min-height: 58px;
+    padding: 0 12px;
+  }
+
+  .dashboard-banner {
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .clock-widget {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+  }
+
+  .metric-cards-grid,
+  .dashboard-three-col,
+  .dashboard-two-col {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .leave-cards-grid,
+  .quick-actions-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .quick-action-btn {
+    padding: 12px 10px;
+    font-size: 12px;
+  }
+
+  .profile-container {
+    gap: 14px;
+  }
+
+  .profile-avatar-details {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 12px;
+  }
+
+  .dark-details-grid {
+    grid-template-columns: 1fr;
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .profile-tabs-container {
+    flex-direction: column;
+  }
+
+  .profile-tabs-container button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .auth-container {
+    padding: 14px;
+  }
+
+  .auth-card {
+    padding: 24px 18px;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .cancel-button {
+    padding: 0 12px;
+    font-size: 12px;
+  }
+}
+
+/* ================= VERY SMALL MOBILE ================= */
+
+@media (max-width: 380px) {
+  .page-content {
+    padding: 10px;
+  }
+
+  .topbar {
+    padding: 0 10px;
+  }
+
+  .dashboard-banner {
+    padding: 14px;
   }
 
   .leave-cards-grid,
   .quick-actions-grid {
     grid-template-columns: 1fr;
   }
+
+  .nav-item {
+    padding: 0 12px;
+    font-size: 13px;
+  }
+
+  .dark-header-card {
+    padding: 14px;
+  }
 }
 
-@media (max-width: 500px) {
-  .topbar {
-    height: 58px;
+/* ================= TOUCH DEVICES ================= */
+
+@media (hover: none) {
+  .quick-action-btn:hover {
+    transform: none;
+  }
+
+  .nav-item:hover {
+    background: transparent;
+  }
+
+  .nav-item.active {
+    background: #0066ff;
+  }
+}
+
+/* ================= REDUCED MOTION ================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+/* =========================================
+   PROFILE OVERFLOW FIX - MOBILE RESPONSIVE
+   Add this at the VERY END of App.css
+========================================= */
+
+.dark-header-card,
+.profile-container,
+.profile-info-section,
+.profile-avatar-details,
+.dark-details-grid {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.dark-header-card {
+  overflow: hidden;
+}
+
+.profile-info-section {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.profile-info-section > *,
+.profile-avatar-details > *,
+.dark-details-grid > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.profile-avatar-details {
+  flex: 1 1 260px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.profile-avatar-details img {
+  width: 80px;
+  height: 80px;
+  max-width: 100%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dark-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 1 1 100%;
+  overflow: hidden;
+}
+
+.dark-details-grid a,
+.dark-details-grid p,
+.dark-details-grid span,
+.dark-header-card a,
+.dark-header-card p {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.profile-tabs-container {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* Tablet and mobile */
+@media screen and (max-width: 768px) {
+  .profile-container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 16px;
+  }
+
+  .dark-header-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .profile-info-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .profile-avatar-details {
+    width: 100%;
+    min-width: 0 !important;
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 12px;
+  }
+
+  .dark-details-grid {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .profile-tabs-container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .profile-tabs-container button {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+/* Small phones */
+@media screen and (max-width: 480px) {
+  .page-content {
+    padding: 10px !important;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dark-header-card {
+    padding: 14px !important;
+  }
+
+  .profile-avatar-details img {
+    width: 76px;
+    height: 76px;
+  }
+
+  .dark-header-card h1,
+  .dark-header-card h2 {
+    max-width: 100%;
+    font-size: clamp(19px, 6vw, 24px);
+    overflow-wrap: anywhere;
+  }
+
+  .dark-header-card a {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+}
+
+/* Extra-small phones */
+@media screen and (max-width: 360px) {
+  .page-content {
+    padding: 8px !important;
+  }
+
+  .dark-header-card {
+    padding: 12px !important;
+  }
+
+  .dark-details-grid {
+    padding: 12px;
   }
 }

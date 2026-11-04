@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,71 +8,401 @@ import {
   Clock,
   ChevronDown,
   X,
+  Play,
+  Pause,
+  LogOut,
+  Coffee,
 } from "lucide-react";
 
-export default function AttendancePage() {
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 9, 1));
-  const [showAllLogsModal, setShowAllLogsModal] = useState(false);
+const ATTENDANCE_KEY = "workx_attendance_records";
+const LEAVE_KEY = "workx_leave_history_v4";
+const ATTENDANCE_EVENT = "workxAttendanceUpdated";
+const LEAVE_EVENT = "leaveHistoryUpdated";
 
+const WORK_TARGET_MS = 8 * 60 * 60 * 1000;
+const BREAK_TARGET_MS = 60 * 60 * 1000;
+
+const pad = (value) => String(value).padStart(2, "0");
+
+const getDateKey = (date = new Date()) =>
+  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+const parseDateKey = (key) => new Date(`${key}T00:00:00`);
+
+const formatTime = (value) => {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatWorkTime = (milliseconds) => {
+  const minutes = Math.floor(Math.max(0, milliseconds) / 60000);
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  return `${hours}h ${String(remainingMinutes).padStart(2, "0")}m`;
+};
+
+const getBreakMilliseconds = (record, now = new Date()) => {
+  if (!record) return 0;
+
+  const completedBreaks = (record.breaks || []).reduce(
+    (total, item) => {
+      if (!item.start || !item.end) return total;
+
+      const start = new Date(item.start).getTime();
+      const end = new Date(item.end).getTime();
+
+      return total + Math.max(0, end - start);
+    },
+    0
+  );
+
+  const activeBreak = record.activeBreakStart
+    ? Math.max(
+        0,
+        now.getTime() - new Date(record.activeBreakStart).getTime()
+      )
+    : 0;
+
+  return completedBreaks + activeBreak;
+};
+
+const getWorkedMilliseconds = (record, now = new Date()) => {
+  if (!record?.checkIn) return 0;
+
+  const start = new Date(record.checkIn).getTime();
+  const end = record.checkOut
+    ? new Date(record.checkOut).getTime()
+    : now.getTime();
+
+  return Math.max(
+    0,
+    end - start - getBreakMilliseconds(record, now)
+  );
+};
+
+const buildTimeLabel = (record) => {
+  if (!record) return "-";
+
+  if (record.status === "absent") {
+    return record.time || "On Leave";
+  }
+
+  const checkIn = record.checkIn ? formatTime(record.checkIn) : "";
+  const checkOut = record.checkOut ? formatTime(record.checkOut) : "";
+
+  if (checkIn && checkOut) return `${checkIn} - ${checkOut}`;
+  if (checkIn) return `${checkIn} - In progress`;
+
+  return record.time || "-";
+};
+
+const getStoredRecords = () => {
+  try {
+    const saved = localStorage.getItem(ATTENDANCE_KEY);
+
+    if (!saved) return {};
+
+    const parsed = JSON.parse(saved);
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    console.error("Unable to read attendance records:", error);
+    return {};
+  }
+};
+
+const getApprovedLeaveRecords = (baseRecords) => {
+  let leaveList = [];
+
+  try {
+    const savedLeaves = localStorage.getItem(LEAVE_KEY);
+    leaveList = savedLeaves ? JSON.parse(savedLeaves) : [];
+  } catch (error) {
+    console.error("Unable to read leave history:", error);
+  }
+
+  const updated = { ...baseRecords };
+
+  Object.keys(updated).forEach((key) => {
+    if (updated[key]?.source === "leave") {
+      delete updated[key];
+    }
+  });
+
+  (Array.isArray(leaveList) ? leaveList : []).forEach((leave) => {
+    if (leave.status !== "Approved" || !leave.from || !leave.to) return;
+
+    const start = new Date(`${String(leave.from).slice(0, 10)}T00:00:00`);
+    const end = new Date(`${String(leave.to).slice(0, 10)}T00:00:00`);
+
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime()) ||
+      start > end
+    ) {
+      return;
+    }
+
+    const current = new Date(start);
+
+    while (current <= end) {
+      if (current.getDay() !== 0 && current.getDay() !== 6) {
+        const key = getDateKey(current);
+
+        if (!updated[key] || updated[key].source === "leave") {
+          updated[key] = {
+            status: "absent",
+            time: leave.type || "Approved Leave",
+            source: "leave",
+            leaveId: leave.id ?? null,
+          };
+        }
+      }
+
+      current.setDate(current.getDate() + 1);
+    }
+  });
+
+  return updated;
+};
+
+const getWorkingDays = (startDate, endDate) => {
+  let count = 0;
+  const current = new Date(startDate);
+
+  while (current <= endDate) {
+    if (current.getDay() !== 0 && current.getDay() !== 6) {
+      count += 1;
+    }
+
+    current.setDate(current.getDate() + 1);
+  }
+
+  return count;
+};
+
+const getSummaryRangeDates = (range, referenceDate) => {
+  const year = referenceDate.getFullYear();
+  const month = referenceDate.getMonth();
+
+  if (range === "Last Month") {
+    return {
+      start: new Date(year, month - 1, 1),
+      end: new Date(year, month, 0),
+    };
+  }
+
+  if (range === "This Year") {
+    return {
+      start: new Date(year, 0, 1),
+      end: new Date(year, 11, 31),
+    };
+  }
+
+  return {
+    start: new Date(year, month, 1),
+    end: new Date(year, month + 1, 0),
+  };
+};
+
+export default function AttendancePage() {
+  const [currentDate, setCurrentDate] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
+
+  const [clockNow, setClockNow] = useState(() => new Date());
+  const [showAllLogsModal, setShowAllLogsModal] = useState(false);
   const [summaryRange, setSummaryRange] = useState("This Month");
   const [isRangeDropdownOpen, setIsRangeDropdownOpen] = useState(false);
 
   const [attendanceRecords, setAttendanceRecords] = useState(() => {
-    const saved = localStorage.getItem("workx_attendance_records");
-    if (saved) return JSON.parse(saved);
-    return {
-      "2026-10-01": { status: "present", time: "09:08 AM - 06:10 PM" },
-      "2026-10-02": { status: "present", time: "09:12 AM - 06:01 PM" },
-      "2026-10-05": { status: "present", time: "09:00 AM - 06:00 PM" },
-      "2026-10-07": { status: "present", time: "09:15 AM - 06:00 PM" },
-      "2026-10-12": { status: "present", time: "09:00 AM - 05:45 PM" },
-    };
+    if (typeof window === "undefined") return {};
+    return getApprovedLeaveRecords(getStoredRecords());
   });
 
-  // Sync approved leave requests into attendance records automatically
+  const todayKey = getDateKey(clockNow);
+  const todayRecord = attendanceRecords[todayKey] || null;
+
+  const isClockedIn = Boolean(todayRecord?.checkIn) && !todayRecord?.checkOut;
+  const isOnBreak = Boolean(todayRecord?.activeBreakStart);
+  const isClockedOut = Boolean(todayRecord?.checkOut);
+
+  const workedMilliseconds = getWorkedMilliseconds(todayRecord, clockNow);
+  const breakMilliseconds = getBreakMilliseconds(todayRecord, clockNow);
+
+  const remainingMilliseconds = Math.max(
+    0,
+    WORK_TARGET_MS - workedMilliseconds
+  );
+
+  const workProgress = Math.min(
+    100,
+    (workedMilliseconds / WORK_TARGET_MS) * 100
+  );
+
+  const breakProgress = Math.min(
+    100,
+    (breakMilliseconds / BREAK_TARGET_MS) * 100
+  );
+
+  // Save attendance and notify other WorkX components.
   useEffect(() => {
-    const handleStorageChange = () => {
-      try {
-        const savedRecords = localStorage.getItem("workx_attendance_records");
-        if (savedRecords) setAttendanceRecords(JSON.parse(savedRecords));
+    try {
+      localStorage.setItem(
+        ATTENDANCE_KEY,
+        JSON.stringify(attendanceRecords)
+      );
 
-        const savedLeaveHistory = localStorage.getItem("workx_leave_history_v4");
-        if (savedLeaveHistory) {
-          const leaveList = JSON.parse(savedLeaveHistory);
-          setAttendanceRecords((prev) => {
-            const updated = { ...prev };
-            leaveList.forEach((leave) => {
-              if (leave.status === "Approved") {
-                const fromDateObj = new Date(leave.from);
-                const toDateObj = new Date(leave.to);
-                
-                let curr = new Date(fromDateObj);
-                while (curr <= toDateObj) {
-                  const dateKey = curr.toISOString().split("T")[0];
-                  updated[dateKey] = { status: "absent", time: leave.type };
-                  curr.setDate(curr.getDate() + 1);
-                }
-              }
-            });
-            return updated;
-          });
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    };
+      window.dispatchEvent(new Event(ATTENDANCE_EVENT));
+    } catch (error) {
+      console.error("Unable to save attendance records:", error);
+    }
+  }, [attendanceRecords]);
 
-    handleStorageChange();
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+  // Update the clock every second.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClockNow(new Date());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
+  // Synchronize attendance and approved leave.
+  useEffect(() => {
+    const syncData = () => {
+      const latestRecords = getStoredRecords();
+      setAttendanceRecords(getApprovedLeaveRecords(latestRecords));
+    };
+
+    window.addEventListener("storage", syncData);
+    window.addEventListener(LEAVE_EVENT, syncData);
+
+    return () => {
+      window.removeEventListener("storage", syncData);
+      window.removeEventListener(LEAVE_EVENT, syncData);
+    };
+  }, []);
+
+  // Clock In.
+  const handleClockIn = () => {
+    const now = new Date().toISOString();
+
+    setAttendanceRecords((previous) => {
+      const existing = previous[todayKey];
+
+      if (existing?.checkIn) return previous;
+
+      return {
+        ...previous,
+        [todayKey]: {
+          ...existing,
+          status: "present",
+          checkIn: now,
+          checkOut: null,
+          breaks: [],
+          activeBreakStart: null,
+          source: "attendance",
+        },
+      };
+    });
+  };
+
+  // Start break.
+  const handleBreakStart = () => {
+    if (!isClockedIn || isOnBreak) return;
+
+    setAttendanceRecords((previous) => ({
+      ...previous,
+      [todayKey]: {
+        ...previous[todayKey],
+        activeBreakStart: new Date().toISOString(),
+      },
+    }));
+  };
+
+  // End break.
+  const handleBreakEnd = () => {
+    if (!isOnBreak) return;
+
+    const now = new Date().toISOString();
+
+    setAttendanceRecords((previous) => {
+      const record = previous[todayKey];
+
+      return {
+        ...previous,
+        [todayKey]: {
+          ...record,
+          breaks: [
+            ...(record.breaks || []),
+            {
+              start: record.activeBreakStart,
+              end: now,
+            },
+          ],
+          activeBreakStart: null,
+        },
+      };
+    });
+  };
+
+  // Clock Out.
+  const handleClockOut = () => {
+    if (!isClockedIn) return;
+
+    const now = new Date().toISOString();
+
+    setAttendanceRecords((previous) => {
+      const record = previous[todayKey];
+      let breaks = record.breaks || [];
+
+      if (record.activeBreakStart) {
+        breaks = [
+          ...breaks,
+          {
+            start: record.activeBreakStart,
+            end: now,
+          },
+        ];
+      }
+
+      return {
+        ...previous,
+        [todayKey]: {
+          ...record,
+          status: "present",
+          checkOut: now,
+          breaks,
+          activeBreakStart: null,
+        },
+      };
+    });
+  };
+
+  // Calendar navigation.
   const handlePrevMonth = () => {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+    setCurrentDate((previous) =>
+      new Date(previous.getFullYear(), previous.getMonth() - 1, 1)
+    );
   };
 
   const handleNextMonth = () => {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+    setCurrentDate((previous) =>
+      new Date(previous.getFullYear(), previous.getMonth() + 1, 1)
+    );
   };
 
   const formattedMonthYear = currentDate.toLocaleDateString("en-US", {
@@ -79,33 +410,29 @@ export default function AttendancePage() {
     year: "numeric",
   });
 
-  const generateCalendarDays = () => {
+  const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
-    const firstDayOfMonth = new Date(year, month, 1).getDay();
-    const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
 
     const days = [];
 
-    for (let i = firstDayOfMonth - 1; i >= 0; i--) {
+    for (let index = firstDay - 1; index >= 0; index--) {
       days.push({
-        day: daysInPrevMonth - i,
+        day: daysInPrevMonth - index,
         status: "other",
         isCurrentMonth: false,
       });
     }
 
-    const today = new Date();
-    for (let day = 1; day <= daysInCurrentMonth; day++) {
-      const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      const isToday =
-        today.getFullYear() === year &&
-        today.getMonth() === month &&
-        today.getDate() === day;
-
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateKey = `${year}-${pad(month + 1)}-${pad(day)}`;
+      const isToday = dateKey === todayKey;
       const record = attendanceRecords[dateKey];
+
       let status = "normal";
 
       if (record?.status === "present") status = "present";
@@ -115,13 +442,15 @@ export default function AttendancePage() {
       days.push({
         day,
         status,
-        checkInTime: record?.time || null,
+        dateKey,
+        record,
         isCurrentMonth: true,
       });
     }
 
-    const remainingGridCells = 35 - days.length > 0 ? 35 - days.length : 42 - days.length;
-    for (let day = 1; day <= remainingGridCells; day++) {
+    const remaining = days.length <= 35 ? 35 - days.length : 42 - days.length;
+
+    for (let day = 1; day <= remaining; day++) {
       days.push({
         day,
         status: "other",
@@ -130,9 +459,7 @@ export default function AttendancePage() {
     }
 
     return days;
-  };
-
-  const calendarDays = generateCalendarDays();
+  }, [currentDate, attendanceRecords, todayKey]);
 
   const getTileStyles = (item) => {
     if (!item.isCurrentMonth) {
@@ -166,8 +493,28 @@ export default function AttendancePage() {
     }
   };
 
-  const presentDaysCount = Object.values(attendanceRecords).filter((r) => r.status === "present").length;
-  const absentDaysCount = Object.values(attendanceRecords).filter((r) => r.status === "absent").length;
+  // Summary calculations.
+  const summaryDates = getSummaryRangeDates(summaryRange, clockNow);
+
+  const summaryRecords = Object.entries(attendanceRecords).filter(
+    ([dateKey]) => {
+      const date = parseDateKey(dateKey);
+      return date >= summaryDates.start && date <= summaryDates.end;
+    }
+  );
+
+  const presentDaysCount = summaryRecords.filter(
+    ([, record]) => record.status === "present"
+  ).length;
+
+  const absentDaysCount = summaryRecords.filter(
+    ([, record]) => record.status === "absent"
+  ).length;
+
+  const totalWorkingDays = getWorkingDays(
+    summaryDates.start,
+    summaryDates.end
+  );
 
   const summaryCards = [
     {
@@ -188,7 +535,7 @@ export default function AttendancePage() {
     },
     {
       title: "Total Working Days",
-      value: "21",
+      value: String(totalWorkingDays),
       unit: "days",
       icon: Clock,
       bgColor: "#eff6ff",
@@ -196,24 +543,56 @@ export default function AttendancePage() {
     },
   ];
 
-  const allLogs = Object.entries(attendanceRecords).map(([dateStr, data]) => ({
-    date: new Date(dateStr).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
-    day: new Date(dateStr).toLocaleDateString("en-US", { weekday: "long" }),
-    time: data.time || "-",
-    duration: data.status === "absent" ? "On Leave" : "8h 30m",
-    type: data.status,
-  }));
+  // Attendance logs.
+  const allLogs = Object.entries(attendanceRecords)
+    .map(([dateStr, data]) => {
+      const date = parseDateKey(dateStr);
+      const logNow =
+        dateStr === todayKey
+          ? clockNow
+          : new Date(data.checkOut || data.checkIn || date);
+
+      return {
+        date: date.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        }),
+        dateKey: dateStr,
+        day: date.toLocaleDateString("en-US", {
+          weekday: "long",
+        }),
+        time: buildTimeLabel(data),
+        duration:
+          data.status === "absent"
+            ? "On Leave"
+            : data.checkIn
+              ? formatWorkTime(getWorkedMilliseconds(data, logNow))
+              : "-",
+        type: data.status,
+      };
+    })
+    .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 
   const recentLogs = allLogs.slice(0, 5);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div className="attendance-page">
       <style>{`
+        .attendance-page {
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+          min-width: 0;
+          width: 100%;
+        }
+
         .attendance-main-grid {
           display: grid;
-          grid-template-columns: 1fr 340px;
+          grid-template-columns: minmax(0, 1fr) 340px;
           gap: 24px;
           align-items: start;
+          min-width: 0;
         }
 
         .calendar-header-nav {
@@ -223,13 +602,14 @@ export default function AttendancePage() {
         }
 
         .calendar-tile {
+          min-width: 0;
           min-height: 82px;
           border-radius: 12px;
           padding: 8px;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          transition: all 0.2s ease-in-out;
+          box-sizing: border-box;
         }
 
         .calendar-tile-status {
@@ -240,7 +620,6 @@ export default function AttendancePage() {
           text-align: center;
           width: 100%;
           box-sizing: border-box;
-          word-break: break-word;
         }
 
         .attendance-legend-container {
@@ -252,6 +631,7 @@ export default function AttendancePage() {
           border-top: 1px solid #f1f5f9;
           font-size: 12px;
           color: #64748b;
+          flex-wrap: wrap;
         }
 
         .summary-cards-grid {
@@ -260,9 +640,34 @@ export default function AttendancePage() {
           gap: 12px;
         }
 
+        .attendance-log-row,
+        .attendance-log-details,
+        .attendance-summary-card {
+          min-width: 0;
+        }
+
+        .attendance-action-button {
+          border: none;
+          border-radius: 9px;
+          padding: 11px 18px;
+          font-size: 13px;
+          font-weight: 600;
+          color: white;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+        }
+
+        .attendance-action-button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
         @media (max-width: 868px) {
           .attendance-main-grid {
-            grid-template-columns: 1fr !important;
+            grid-template-columns: minmax(0, 1fr) !important;
             gap: 16px !important;
           }
 
@@ -291,20 +696,12 @@ export default function AttendancePage() {
 
           .calendar-tile-status {
             font-size: 8px !important;
-            padding: 2px 2px !important;
-            border-radius: 4px !important;
-            line-height: 1.1;
+            padding: 2px !important;
           }
 
           .attendance-legend-container {
             gap: 12px !important;
-            flex-wrap: wrap !important;
-            font-size: 11px !important;
             justify-content: center;
-          }
-
-          .summary-cards-grid {
-            grid-template-columns: 1fr 1fr !important;
           }
         }
 
@@ -319,7 +716,7 @@ export default function AttendancePage() {
           }
 
           .calendar-tile-status {
-            font-size: 7.5px !important;
+            font-size: 7px !important;
             padding: 1px !important;
           }
 
@@ -327,104 +724,385 @@ export default function AttendancePage() {
             grid-template-columns: 1fr 1fr !important;
             gap: 8px !important;
           }
+
+          .attendance-summary-card {
+            padding: 14px !important;
+          }
+
+          .attendance-log-row {
+            gap: 6px !important;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .summary-cards-grid {
+            grid-template-columns: 1fr !important;
+          }
         }
       `}</style>
 
-      {/* DARK BANNER HEADER */}
+      {/* HEADER */}
       <div
         style={{
           backgroundColor: "#080e1e",
           borderRadius: "16px",
           padding: "24px 28px",
-          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.2)",
+          boxShadow: "0 10px 25px -5px rgba(0,0,0,0.2)",
         }}
       >
-        <h1 style={{ fontSize: "22px", fontWeight: "700", color: "#ffffff", margin: "0 0 6px 0" }}>
+        <h1 style={{
+          fontSize: "22px",
+          fontWeight: 700,
+          color: "#fff",
+          margin: "0 0 6px",
+        }}>
           Attendance
         </h1>
-        <p style={{ fontSize: "14px", color: "#94a3b8", margin: 0 }}>
+
+        <p style={{
+          fontSize: "14px",
+          color: "#94a3b8",
+          margin: 0,
+        }}>
           View your attendance, working hours and leaves.
         </p>
       </div>
 
-      {/* MAIN LAYOUT GRID */}
+      {/* LIVE WORK SESSION */}
+      <div style={{
+        background: "#fff",
+        border: "1px solid #e2e8f0",
+        borderRadius: "16px",
+        padding: "22px",
+        boxShadow: "0 2px 8px rgba(15,23,42,0.04)",
+      }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          marginBottom: 20,
+        }}>
+          <div>
+            <h3 style={{
+              margin: 0,
+              color: "#0f172a",
+              fontSize: 17,
+              fontWeight: 700,
+            }}>
+              Today's Work Session
+            </h3>
+            <p style={{
+              margin: "5px 0 0",
+              color: "#64748b",
+              fontSize: 12,
+            }}>
+              8 hours working time + 1 hour break
+            </p>
+          </div>
+
+          <span style={{
+            padding: "7px 12px",
+            borderRadius: 20,
+            fontSize: 12,
+            fontWeight: 700,
+            color: isOnBreak
+              ? "#b45309"
+              : isClockedIn
+                ? "#047857"
+                : isClockedOut
+                  ? "#1d4ed8"
+                  : "#64748b",
+            background: isOnBreak
+              ? "#fef3c7"
+              : isClockedIn
+                ? "#d1fae5"
+                : isClockedOut
+                  ? "#dbeafe"
+                  : "#f1f5f9",
+          }}>
+            {isOnBreak
+              ? "On Break"
+              : isClockedIn
+                ? "Present"
+                : isClockedOut
+                  ? "Clocked Out"
+                  : "Not Clocked In"}
+          </span>
+        </div>
+
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))",
+          gap: 14,
+          marginBottom: 20,
+        }}>
+          {[
+            {
+              label: "Worked Hours",
+              value: formatWorkTime(workedMilliseconds),
+              color: "#0f172a",
+            },
+            {
+              label: "Remaining Work Time",
+              value: remainingMilliseconds === 0
+                ? "Completed"
+                : formatWorkTime(remainingMilliseconds),
+              color: remainingMilliseconds === 0 ? "#059669" : "#2563eb",
+            },
+            {
+              label: "Break Taken",
+              value: formatWorkTime(breakMilliseconds),
+              color: "#d97706",
+            },
+          ].map((item) => (
+            <div key={item.label} style={{
+              background: "#f8fafc",
+              borderRadius: 12,
+              padding: 16,
+            }}>
+              <div style={{ fontSize: 12, color: "#64748b" }}>
+                {item.label}
+              </div>
+              <div style={{
+                fontSize: 25,
+                fontWeight: 700,
+                color: item.color,
+                marginTop: 7,
+                fontVariantNumeric: "tabular-nums",
+              }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* WORK PROGRESS */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 8,
+            fontSize: 12,
+            color: "#64748b",
+          }}>
+            <span>8-hour work progress</span>
+            <strong style={{ color: "#0f172a" }}>
+              {Math.round(workProgress)}%
+            </strong>
+          </div>
+          <div style={{
+            height: 10,
+            background: "#e2e8f0",
+            borderRadius: 20,
+            overflow: "hidden",
+          }}>
+            <div style={{
+              width: `${workProgress}%`,
+              height: "100%",
+              background: "#10b981",
+              borderRadius: 20,
+              transition: "width 0.3s ease",
+            }} />
+          </div>
+        </div>
+
+        {/* BREAK PROGRESS */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 8,
+            fontSize: 12,
+            color: "#64748b",
+          }}>
+            <span>1-hour break</span>
+            <strong style={{ color: "#0f172a" }}>
+              {Math.round(breakProgress)}%
+            </strong>
+          </div>
+          <div style={{
+            height: 8,
+            background: "#e2e8f0",
+            borderRadius: 20,
+            overflow: "hidden",
+          }}>
+            <div style={{
+              width: `${breakProgress}%`,
+              height: "100%",
+              background: "#f59e0b",
+              borderRadius: 20,
+            }} />
+          </div>
+        </div>
+
+        {/* PUNCH TIMES */}
+        <div style={{
+          display: "flex",
+          gap: 20,
+          flexWrap: "wrap",
+          marginBottom: 20,
+          fontSize: 12,
+          color: "#64748b",
+        }}>
+          <span>
+            Clock In:{" "}
+            <strong style={{ color: "#0f172a" }}>
+              {todayRecord?.checkIn
+                ? formatTime(todayRecord.checkIn)
+                : "--:--"}
+            </strong>
+          </span>
+          <span>
+            Clock Out:{" "}
+            <strong style={{ color: "#0f172a" }}>
+              {todayRecord?.checkOut
+                ? formatTime(todayRecord.checkOut)
+                : "--:--"}
+            </strong>
+          </span>
+        </div>
+
+        {/* BUTTONS */}
+        <div style={{
+          display: "flex",
+          gap: 10,
+          flexWrap: "wrap",
+        }}>
+          {!todayRecord?.checkIn && (
+            <button
+              className="attendance-action-button"
+              onClick={handleClockIn}
+              style={{ background: "#059669" }}
+            >
+              <Play size={15} /> Clock In
+            </button>
+          )}
+
+          {isClockedIn && !isOnBreak && (
+            <button
+              className="attendance-action-button"
+              onClick={handleBreakStart}
+              style={{ background: "#f59e0b" }}
+            >
+              <Coffee size={15} /> Start Break
+            </button>
+          )}
+
+          {isClockedIn && isOnBreak && (
+            <button
+              className="attendance-action-button"
+              onClick={handleBreakEnd}
+              style={{ background: "#059669" }}
+            >
+              <Play size={15} /> End Break
+            </button>
+          )}
+
+          {isClockedIn && (
+            <button
+              className="attendance-action-button"
+              onClick={handleClockOut}
+              style={{ background: "#dc2626" }}
+            >
+              <LogOut size={15} /> Clock Out
+            </button>
+          )}
+        </div>
+
+        {isClockedOut && (
+          <p style={{
+            color: "#047857",
+            fontSize: 12,
+            margin: "14px 0 0",
+            fontWeight: 600,
+          }}>
+            Attendance completed for today.
+            {workedMilliseconds >= WORK_TARGET_MS
+              ? " 8-hour work target completed!"
+              : ` ${formatWorkTime(remainingMilliseconds)} of work time remaining.`}
+          </p>
+        )}
+      </div>
+
+      {/* MAIN LAYOUT */}
       <div className="attendance-main-grid">
+        {/* CALENDAR */}
         <div
           className="attendance-calendar-card"
           style={{
-            backgroundColor: "#ffffff",
-            borderRadius: "16px",
-            padding: "24px",
+            backgroundColor: "#fff",
+            borderRadius: 16,
+            padding: 24,
             border: "1px solid #e2e8f0",
             boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+            minWidth: 0,
           }}
         >
           <div
             className="calendar-header-container"
-            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 24,
+            }}
           >
             <div className="calendar-header-nav">
               <button
                 onClick={handlePrevMonth}
                 title="Previous Month"
-                style={{
-                  width: "36px",
-                  height: "36px",
-                  borderRadius: "10px",
-                  border: "1px solid #e2e8f0",
-                  backgroundColor: "#fff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  color: "#475569",
-                  transition: "all 0.15s ease",
-                }}
+                aria-label="Previous Month"
+                style={navButtonStyle}
               >
                 <ChevronLeft size={18} />
               </button>
-              
-              <h2 style={{ fontSize: "18px", fontWeight: "700", color: "#0f172a", margin: "0 8px", textAlign: "center", minWidth: "140px" }}>
+
+              <h2 style={{
+                fontSize: 18,
+                fontWeight: 700,
+                color: "#0f172a",
+                margin: "0 8px",
+                textAlign: "center",
+                minWidth: 140,
+              }}>
                 {formattedMonthYear}
               </h2>
 
               <button
                 onClick={handleNextMonth}
                 title="Next Month"
-                style={{
-                  width: "36px",
-                  height: "36px",
-                  borderRadius: "10px",
-                  border: "1px solid #e2e8f0",
-                  backgroundColor: "#fff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  color: "#475569",
-                  transition: "all 0.15s ease",
-                }}
+                aria-label="Next Month"
+                style={navButtonStyle}
               >
                 <ChevronRight size={18} />
               </button>
             </div>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(7, 1fr)",
-              textAlign: "center",
-              fontSize: "13px",
-              fontWeight: "500",
-              color: "#64748b",
-              marginBottom: "12px",
-            }}
-          >
-            <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(7,minmax(0,1fr))",
+            textAlign: "center",
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#64748b",
+            marginBottom: 12,
+          }}>
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+              <div key={day}>{day}</div>
+            ))}
           </div>
 
-          <div className="calendar-grid-container" style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "8px" }}>
+          <div
+            className="calendar-grid-container"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(7,minmax(0,1fr))",
+              gap: 8,
+            }}
+          >
             {calendarDays.map((item, index) => {
               const isOtherMonth = !item.isCurrentMonth;
               const isToday = item.status === "today";
@@ -432,23 +1110,34 @@ export default function AttendancePage() {
 
               return (
                 <div
-                  key={index}
+                  key={item.dateKey || `other-${index}`}
                   className="calendar-tile"
+                  title={item.record
+                    ? `${item.dateKey}: ${buildTimeLabel(item.record)}`
+                    : item.dateKey || ""}
                   style={{
                     backgroundColor: tileStyles.backgroundColor,
                     border: tileStyles.border,
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}>
                     <span
                       className="day-number-text"
                       style={{
-                        fontSize: "14px",
-                        fontWeight: isToday ? "700" : "500",
-                        color: isOtherMonth ? "#cbd5e1" : isToday ? "#0066FF" : "#1e293b",
-                        width: isToday ? "24px" : "auto",
-                        height: isToday ? "24px" : "auto",
-                        borderRadius: isToday ? "50%" : "0",
+                        fontSize: 14,
+                        fontWeight: isToday ? 700 : 500,
+                        color: isOtherMonth
+                          ? "#cbd5e1"
+                          : isToday
+                            ? "#0066FF"
+                            : "#1e293b",
+                        width: isToday ? 24 : "auto",
+                        height: isToday ? 24 : "auto",
+                        borderRadius: isToday ? "50%" : 0,
                         backgroundColor: isToday ? "#dbeafe" : "transparent",
                         display: "flex",
                         alignItems: "center",
@@ -459,27 +1148,36 @@ export default function AttendancePage() {
                     </span>
                   </div>
 
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+                  <div style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 4,
+                  }}>
                     {item.status === "present" && (
                       <div
                         className="calendar-tile-status"
-                        style={{
-                          backgroundColor: "#d1fae5",
-                          color: "#047857",
-                        }}
+                        style={{ background: "#d1fae5", color: "#047857" }}
                       >
                         Present
                       </div>
                     )}
+
                     {item.status === "absent" && (
                       <div
                         className="calendar-tile-status"
-                        style={{
-                          backgroundColor: "#fee2e2",
-                          color: "#b91c1c",
-                        }}
+                        style={{ background: "#fee2e2", color: "#b91c1c" }}
                       >
-                        Absent / Leave
+                        Leave
+                      </div>
+                    )}
+
+                    {item.status === "today" && (
+                      <div
+                        className="calendar-tile-status"
+                        style={{ background: "#dbeafe", color: "#1d4ed8" }}
+                      >
+                        Today
                       </div>
                     )}
                   </div>
@@ -488,74 +1186,104 @@ export default function AttendancePage() {
             })}
           </div>
 
+          {/* LEGEND */}
           <div className="attendance-legend-container">
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#10b981", flexShrink: 0 }} />
-              <span>Present</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#ef4444", flexShrink: 0 }} />
-              <span>Absent / Leave</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#0066FF", flexShrink: 0 }} />
-              <span>Today</span>
-            </div>
+            {[
+              ["#10b981", "Present"],
+              ["#ef4444", "Absent / Leave"],
+              ["#0066FF", "Today"],
+            ].map(([color, label]) => (
+              <div
+                key={label}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  backgroundColor: color,
+                  flexShrink: 0,
+                }} />
+                <span>{label}</span>
+              </div>
+            ))}
           </div>
         </div>
 
         {/* RIGHT COLUMN */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 24,
+          minWidth: 0,
+        }}>
+          {/* SUMMARY */}
           <div
+            className="attendance-summary-card"
             style={{
-              backgroundColor: "#ffffff",
-              borderRadius: "16px",
-              padding: "20px",
+              background: "#fff",
+              borderRadius: 16,
+              padding: 20,
               border: "1px solid #e2e8f0",
               boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#0f172a", margin: 0 }}>
+            <div style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 16,
+            }}>
+              <h3 style={{
+                fontSize: 15,
+                fontWeight: 700,
+                color: "#0f172a",
+                margin: 0,
+              }}>
                 Attendance Summary
               </h3>
 
               <div style={{ position: "relative" }}>
                 <button
-                  onClick={() => setIsRangeDropdownOpen((prev) => !prev)}
+                  onClick={() => setIsRangeDropdownOpen((value) => !value)}
+                  aria-expanded={isRangeDropdownOpen}
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: "4px",
-                    fontSize: "12px",
-                    fontWeight: "500",
+                    gap: 4,
+                    fontSize: 12,
                     color: "#64748b",
-                    backgroundColor: "#f8fafc",
+                    background: "#f8fafc",
                     border: "1px solid #e2e8f0",
-                    borderRadius: "8px",
-                    padding: "4px 10px",
+                    borderRadius: 8,
+                    padding: "7px 10px",
                     cursor: "pointer",
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  {summaryRange} <ChevronDown size={14} />
+                  {summaryRange}
+                  <ChevronDown size={14} />
                 </button>
 
                 {isRangeDropdownOpen && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "calc(100% + 4px)",
-                      right: 0,
-                      backgroundColor: "#ffffff",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "10px",
-                      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
-                      width: "130px",
-                      zIndex: 50,
-                      overflow: "hidden",
-                    }}
-                  >
-                    {["This Month", "Last Month"].map((range) => (
+                  <div style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    right: 0,
+                    background: "#fff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 10,
+                    boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
+                    width: 130,
+                    zIndex: 50,
+                    overflow: "hidden",
+                  }}>
+                    {["This Month", "Last Month", "This Year"].map((range) => (
                       <button
                         key={range}
                         onClick={() => {
@@ -564,15 +1292,18 @@ export default function AttendancePage() {
                         }}
                         style={{
                           width: "100%",
-                          padding: "8px 12px",
-                          fontSize: "12px",
+                          padding: "9px 12px",
+                          fontSize: 12,
                           textAlign: "left",
                           border: "none",
-                          backgroundColor: summaryRange === range ? "#eff6ff" : "transparent",
-                          color: summaryRange === range ? "#0066FF" : "#334155",
-                          fontWeight: summaryRange === range ? "600" : "400",
+                          background: summaryRange === range
+                            ? "#eff6ff"
+                            : "transparent",
+                          color: summaryRange === range
+                            ? "#0066FF"
+                            : "#334155",
+                          fontWeight: summaryRange === range ? 600 : 400,
                           cursor: "pointer",
-                          display: "block",
                         }}
                       >
                         {range}
@@ -584,42 +1315,57 @@ export default function AttendancePage() {
             </div>
 
             <div className="summary-cards-grid">
-              {summaryCards.map((card, idx) => {
+              {summaryCards.map((card) => {
                 const IconComponent = card.icon;
+
                 return (
                   <div
-                    key={idx}
+                    key={card.title}
                     style={{
-                      backgroundColor: "#f8fafc",
-                      borderRadius: "12px",
-                      padding: "14px",
+                      background: "#f8fafc",
+                      borderRadius: 12,
+                      padding: 14,
                       display: "flex",
-                      gap: "12px",
+                      gap: 12,
                       alignItems: "flex-start",
+                      minWidth: 0,
                     }}
                   >
-                    <div
-                      style={{
-                        width: "36px",
-                        height: "36px",
-                        borderRadius: "10px",
-                        backgroundColor: card.bgColor,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                      }}
-                    >
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background: card.bgColor,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}>
                       <IconComponent size={20} color={card.iconColor} />
                     </div>
-                    <div>
-                      <div style={{ fontSize: "11px", color: "#64748b", marginBottom: "2px", fontWeight: "500" }}>
+
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 11,
+                        color: "#64748b",
+                        marginBottom: 2,
+                        fontWeight: 500,
+                      }}>
                         {card.title}
                       </div>
-                      <div style={{ fontSize: "20px", fontWeight: "700", color: "#0f172a", lineHeight: "1.2" }}>
+
+                      <div style={{
+                        fontSize: 20,
+                        fontWeight: 700,
+                        color: "#0f172a",
+                        lineHeight: 1.2,
+                      }}>
                         {card.value}
                       </div>
-                      <div style={{ fontSize: "11px", color: "#94a3b8" }}>{card.unit}</div>
+
+                      <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                        {card.unit}
+                      </div>
                     </div>
                   </div>
                 );
@@ -627,27 +1373,37 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          <div
-            style={{
-              backgroundColor: "#ffffff",
-              borderRadius: "16px",
-              padding: "20px",
-              border: "1px solid #e2e8f0",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#0f172a", margin: 0 }}>
+          {/* RECENT LOGS */}
+          <div style={{
+            background: "#fff",
+            borderRadius: 16,
+            padding: 20,
+            border: "1px solid #e2e8f0",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+            minWidth: 0,
+          }}>
+            <div style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 16,
+            }}>
+              <h3 style={{
+                fontSize: 15,
+                fontWeight: 700,
+                color: "#0f172a",
+                margin: 0,
+              }}>
                 Recent Logs
               </h3>
 
               <button
                 onClick={() => setShowAllLogsModal(true)}
                 style={{
-                  fontSize: "12px",
+                  fontSize: 12,
                   color: "#0066FF",
-                  fontWeight: "600",
-                  backgroundColor: "transparent",
+                  fontWeight: 600,
+                  background: "transparent",
                   border: "none",
                   cursor: "pointer",
                 }}
@@ -656,97 +1412,163 @@ export default function AttendancePage() {
               </button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {recentLogs.map((log, index) => (
-                <div
-                  key={index}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 0",
-                    borderBottom: index !== recentLogs.length - 1 ? "1px solid #f1f5f9" : "none",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <span
-                      style={{
-                        width: "8px",
-                        height: "8px",
-                        borderRadius: "50%",
-                        backgroundColor: log.type === "absent" ? "#ef4444" : "#10b981",
-                        flexShrink: 0,
-                      }}
-                    />
-                    <div>
-                      <div style={{ fontSize: "13px", fontWeight: "600", color: "#0f172a" }}>{log.date}</div>
-                      <div style={{ fontSize: "11px", color: "#94a3b8" }}>{log.day}</div>
-                    </div>
-                  </div>
-
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "12px", fontWeight: "500", color: log.type === "absent" ? "#ef4444" : "#334155" }}>
-                      {log.type === "absent" ? `Leave (${log.time})` : log.time}
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#94a3b8" }}>{log.duration}</div>
-                  </div>
+            <div style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}>
+              {recentLogs.length === 0 ? (
+                <div style={{
+                  padding: "12px 0",
+                  color: "#94a3b8",
+                  fontSize: 12,
+                }}>
+                  No attendance records yet.
                 </div>
-              ))}
+              ) : (
+                recentLogs.map((log, index) => (
+                  <div
+                    key={log.dateKey}
+                    className="attendance-log-row"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      padding: "10px 0",
+                      borderBottom: index !== recentLogs.length - 1
+                        ? "1px solid #f1f5f9"
+                        : "none",
+                    }}
+                  >
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      minWidth: 0,
+                    }}>
+                      <span style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: log.type === "absent"
+                          ? "#ef4444"
+                          : "#10b981",
+                        flexShrink: 0,
+                      }} />
+
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: "#0f172a",
+                        }}>
+                          {log.date}
+                        </div>
+                        <div style={{
+                          fontSize: 11,
+                          color: "#94a3b8",
+                        }}>
+                          {log.day}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      textAlign: "right",
+                      minWidth: 0,
+                      overflowWrap: "anywhere",
+                    }}>
+                      <div style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: log.type === "absent"
+                          ? "#ef4444"
+                          : "#334155",
+                      }}>
+                        {log.type === "absent"
+                          ? `Leave (${log.time})`
+                          : log.time}
+                      </div>
+                      <div style={{
+                        fontSize: 11,
+                        color: "#94a3b8",
+                      }}>
+                        {log.duration}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
       </div>
 
+      {/* ALL LOGS MODAL */}
       {showAllLogsModal && (
         <div
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowAllLogsModal(false);
+            }
+          }}
           style={{
             position: "fixed",
             inset: 0,
-            backgroundColor: "rgba(15, 23, 42, 0.5)",
+            background: "rgba(15,23,42,0.5)",
             backdropFilter: "blur(4px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 1000,
+            padding: 16,
           }}
         >
-          <div
-            style={{
-              backgroundColor: "#ffffff",
-              borderRadius: "16px",
-              width: "500px",
-              maxWidth: "90vw",
-              maxHeight: "80vh",
+          <div style={{
+            background: "#fff",
+            borderRadius: 16,
+            width: 500,
+            maxWidth: "90vw",
+            maxHeight: "80vh",
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)",
+            border: "1px solid #e2e8f0",
+          }}>
+            <div style={{
+              padding: "20px 24px",
+              borderBottom: "1px solid #e2e8f0",
               display: "flex",
-              flexDirection: "column",
-              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)",
-              border: "1px solid #e2e8f0",
-            }}
-          >
-            <div
-              style={{
-                padding: "20px 24px",
-                borderBottom: "1px solid #e2e8f0",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}>
               <div>
-                <h3 style={{ fontSize: "18px", fontWeight: "700", color: "#0f172a", margin: 0 }}>
+                <h3 style={{
+                  fontSize: 18,
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  margin: 0,
+                }}>
                   All Attendance Logs
                 </h3>
-                <p style={{ fontSize: "12px", color: "#64748b", margin: "2px 0 0 0" }}>
-                  Detailed punch records for the active period
+                <p style={{
+                  fontSize: 12,
+                  color: "#64748b",
+                  margin: "2px 0 0",
+                }}>
+                  Complete attendance records, newest first
                 </p>
               </div>
+
               <button
                 onClick={() => setShowAllLogsModal(false)}
+                aria-label="Close attendance logs"
                 style={{
-                  backgroundColor: "#f1f5f9",
+                  background: "#f1f5f9",
                   border: "none",
-                  borderRadius: "8px",
-                  padding: "6px",
+                  borderRadius: 8,
+                  padding: 6,
                   cursor: "pointer",
                   color: "#64748b",
                 }}
@@ -755,51 +1577,97 @@ export default function AttendancePage() {
               </button>
             </div>
 
-            <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {allLogs.map((log, index) => (
-                  <div
-                    key={index}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "12px 16px",
-                      backgroundColor: "#f8fafc",
-                      borderRadius: "10px",
-                      border: "1px solid #f1f5f9",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <span
-                        style={{
-                          width: "10px",
-                          height: "10px",
+            <div style={{
+              padding: "20px 24px",
+              overflowY: "auto",
+              flex: 1,
+            }}>
+              {allLogs.length === 0 ? (
+                <div style={{
+                  color: "#94a3b8",
+                  fontSize: 13,
+                }}>
+                  No attendance logs available.
+                </div>
+              ) : (
+                <div style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}>
+                  {allLogs.map((log) => (
+                    <div
+                      key={log.dateKey}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 12,
+                        padding: "12px 16px",
+                        background: "#f8fafc",
+                        borderRadius: 10,
+                        border: "1px solid #f1f5f9",
+                      }}
+                    >
+                      <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        minWidth: 0,
+                      }}>
+                        <span style={{
+                          width: 10,
+                          height: 10,
                           borderRadius: "50%",
-                          backgroundColor: log.type === "absent" ? "#ef4444" : "#10b981",
-                        }}
-                      />
-                      <div>
-                        <div style={{ fontSize: "14px", fontWeight: "600", color: "#0f172a" }}>{log.date}</div>
-                        <div style={{ fontSize: "12px", color: "#64748b" }}>{log.day}</div>
-                      </div>
-                    </div>
+                          background: log.type === "absent"
+                            ? "#ef4444"
+                            : "#10b981",
+                          flexShrink: 0,
+                        }} />
 
-                    <div style={{ textAlign: "right" }}>
-                      <div
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: "600",
-                          color: log.type === "absent" ? "#ef4444" : "#334155",
-                        }}
-                      >
-                        {log.type === "absent" ? `Leave (${log.time})` : log.time}
+                        <div>
+                          <div style={{
+                            fontSize: 14,
+                            fontWeight: 600,
+                            color: "#0f172a",
+                          }}>
+                            {log.date}
+                          </div>
+                          <div style={{
+                            fontSize: 12,
+                            color: "#64748b",
+                          }}>
+                            {log.day}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: "12px", color: "#94a3b8" }}>{log.duration}</div>
+
+                      <div style={{
+                        textAlign: "right",
+                        minWidth: 0,
+                      }}>
+                        <div style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: log.type === "absent"
+                            ? "#ef4444"
+                            : "#334155",
+                        }}>
+                          {log.type === "absent"
+                            ? `Leave (${log.time})`
+                            : log.time}
+                        </div>
+                        <div style={{
+                          fontSize: 12,
+                          color: "#94a3b8",
+                        }}>
+                          {log.duration}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -807,3 +1675,16 @@ export default function AttendancePage() {
     </div>
   );
 }
+
+const navButtonStyle = {
+  width: 36,
+  height: 36,
+  borderRadius: 10,
+  border: "1px solid #e2e8f0",
+  background: "#fff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  color: "#475569",
+};

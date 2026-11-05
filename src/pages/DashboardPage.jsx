@@ -233,7 +233,7 @@ export default function DashboardPage({
   const handleCreateTask = (e) => {
     e.preventDefault();
     if (!newTaskText.trim()) return;
-    onAddTask(newTaskText, newTaskDate);
+    onAddTask(newTaskText, newTaskDate, newTaskDate);
     setNewTaskText("");
     setNewTaskDate(new Date().toISOString().split("T")[0]);
     setIsModalOpen(false);
@@ -611,24 +611,36 @@ export default function DashboardPage({
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "260px", overflowY: "auto" }}>
-            {tasks.map((task) => (
-              <div key={task.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: "8px", border: "1px solid #f1f5f9", backgroundColor: "#ffffff" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <input type="checkbox" checked={task.done} onChange={() => onToggleTask(task.id)} style={{ cursor: "pointer" }} />
-                  <span style={{ fontSize: "13px", textDecoration: task.done ? "line-through" : "none", color: task.done ? "#94a3b8" : "#0f172a" }}>
-                    {task.text}
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: "600", padding: "2px 8px", borderRadius: "4px", backgroundColor: task.tagBg, color: task.tagColor }}>
-                    {task.date}
-                  </span>
-                  <button onClick={() => onDeleteTask(task.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer" }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+            {!tasks || tasks.length === 0 ? (
+              <div style={{ padding: "24px 12px", textAlign: "center", border: "1px dashed #cbd5e1", borderRadius: "8px", color: "#64748b", fontSize: "13px" }}>
+                No tasks yet. Add a task from My Tasks to see it here.
               </div>
-            ))}
+            ) : (
+              tasks.map((task) => {
+                const dueDate = task.deadlineDate || task.date || "";
+                const formattedDueDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDate)
+                  ? new Date(`${dueDate}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+                  : dueDate;
+                return (
+                  <div key={task.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: "8px", border: "1px solid #f1f5f9", backgroundColor: "#ffffff", gap: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                      <input type="checkbox" checked={Boolean(task.done)} onChange={() => onToggleTask(task.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
+                      <span style={{ fontSize: "13px", textDecoration: task.done ? "line-through" : "none", color: task.done ? "#94a3b8" : "#0f172a", overflowWrap: "anywhere" }}>
+                        {task.text}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                      <span style={{ fontSize: "11px", fontWeight: "600", padding: "2px 8px", borderRadius: "4px", backgroundColor: task.done ? "#dcfce7" : "#eff6ff", color: task.done ? "#166534" : "#2563eb" }}>
+                        {task.done ? "Completed" : formattedDueDate}
+                      </span>
+                      <button onClick={() => onDeleteTask(task.id)} aria-label={`Delete ${task.text}`} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer" }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 

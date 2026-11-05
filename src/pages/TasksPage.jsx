@@ -11,41 +11,12 @@ import {
 } from "lucide-react";
 import { whiteCardStyle } from "../App";
 
-const TASK_STORAGE_KEY = "workx_tasks_v1";
-
 const getToday = () => {
   const date = new Date();
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-};
-
-const loadTasks = (initialTasks) => {
-  try {
-    const saved = localStorage.getItem(TASK_STORAGE_KEY);
-
-    if (saved !== null) {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    }
-  } catch (error) {
-    console.error("Unable to load tasks:", error);
-  }
-
-  return Array.isArray(initialTasks) ? initialTasks : [];
-};
-
-// Supports older tasks that only stored a single date.
-const normalizeTask = (task) => {
-  const oldDate = task.date || getToday();
-
-  return {
-    ...task,
-    startDate: task.startDate || oldDate,
-    deadlineDate: task.deadlineDate || oldDate,
-    done: Boolean(task.done),
-  };
 };
 
 const formatDate = (dateValue) => {
@@ -65,14 +36,11 @@ const formatDate = (dateValue) => {
 };
 
 export default function TasksPage({
-  tasks: initialTasks = [],
+  tasks = [],
   onAddTask,
   onToggleTask,
   onDeleteTask,
 }) {
-  const [tasks, setTasks] = useState(() =>
-    loadTasks(initialTasks).map(normalizeTask)
-  );
 
   const [taskText, setTaskText] = useState("");
   const [startDate, setStartDate] = useState(getToday());
@@ -92,39 +60,6 @@ export default function TasksPage({
     window.addEventListener("resize", handleResize);
 
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Save task data automatically
-  useEffect(() => {
-    try {
-      localStorage.setItem(TASK_STORAGE_KEY, JSON.stringify(tasks));
-      window.dispatchEvent(new Event("workxTasksUpdated"));
-    } catch (error) {
-      console.error("Unable to save tasks:", error);
-    }
-  }, [tasks]);
-
-  // Sync changes from another browser tab
-  useEffect(() => {
-    const handleStorageChange = (event) => {
-      if (event.key !== TASK_STORAGE_KEY || !event.newValue) return;
-
-      try {
-        const updatedTasks = JSON.parse(event.newValue);
-
-        if (Array.isArray(updatedTasks)) {
-          setTasks(updatedTasks.map(normalizeTask));
-        }
-      } catch (error) {
-        console.error("Unable to synchronize tasks:", error);
-      }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-    };
   }, []);
 
   // Add task with a start date and deadline date
@@ -154,20 +89,6 @@ export default function TasksPage({
       return;
     }
 
-    const newTask = {
-      id:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `task_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      text: trimmedText,
-      startDate,
-      deadlineDate,
-      done: false,
-      createdAt: new Date().toISOString(),
-    };
-
-    setTasks((previous) => [newTask, ...previous]);
-
     if (typeof onAddTask === "function") {
       onAddTask(trimmedText, startDate, deadlineDate);
     }
@@ -179,28 +100,12 @@ export default function TasksPage({
 
   // Complete or reactivate task
   const handleToggle = (taskId) => {
-    setTasks((previous) =>
-      previous.map((task) =>
-        task.id === taskId
-          ? { ...task, done: !task.done }
-          : task
-      )
-    );
-
-    if (typeof onToggleTask === "function") {
-      onToggleTask(taskId);
-    }
+    if (typeof onToggleTask === "function") onToggleTask(taskId);
   };
 
   // Delete task
   const handleDelete = (taskId) => {
-    setTasks((previous) =>
-      previous.filter((task) => task.id !== taskId)
-    );
-
-    if (typeof onDeleteTask === "function") {
-      onDeleteTask(taskId);
-    }
+    if (typeof onDeleteTask === "function") onDeleteTask(taskId);
   };
 
   // Calculate task status based on deadline
@@ -253,15 +158,16 @@ export default function TasksPage({
   };
 
   // Dynamic dashboard statistics
-  const totalTasks = tasks.length;
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  const totalTasks = safeTasks.length;
 
-  const completedTasks = tasks.filter(
+  const completedTasks = safeTasks.filter(
     (task) => task.done
   ).length;
 
   const pendingTasks = totalTasks - completedTasks;
 
-  const overdueTasks = tasks.filter(
+  const overdueTasks = safeTasks.filter(
     (task) => getTaskStatus(task) === "Overdue"
   ).length;
 
@@ -271,7 +177,7 @@ export default function TasksPage({
       : 0;
 
   // Search and filter
-  const filteredTasks = tasks.filter((task) => {
+  const filteredTasks = safeTasks.filter((task) => {
     const matchesSearch = String(task.text || "")
       .toLowerCase()
       .includes(searchText.toLowerCase());
@@ -720,7 +626,7 @@ export default function TasksPage({
               />
 
               <p style={{ color: "#64748b", margin: 0, fontSize: "14px" }}>
-                {tasks.length === 0
+                {safeTasks.length === 0
                   ? "No tasks yet. Add your first task above."
                   : "No tasks match your search or filter."}
               </p>

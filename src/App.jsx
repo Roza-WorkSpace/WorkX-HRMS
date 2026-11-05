@@ -85,6 +85,38 @@ const initialProfileState = {
 };
 
 const LEAVE_STORAGE_KEY = "workx_leave_history_v4";
+const TASK_STORAGE_KEY = "workx_tasks_v1";
+const SAMPLE_TASK_TITLES = new Set([
+  "Complete UI Review for HR Module",
+  "Update Project Documentation",
+  "Attend Design Sync Meeting",
+  "Share Assets with Dev Team",
+  "Submit Timesheet",
+]);
+
+const loadUserTasks = () => {
+  try {
+    const saved = localStorage.getItem(TASK_STORAGE_KEY);
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    // Remove the old demo/sample tasks while keeping tasks actually created by users.
+    return parsed
+      .filter((task) => !SAMPLE_TASK_TITLES.has(String(task?.text || "").trim()))
+      .map((task) => {
+        const legacyDate = task.date && /^\d{4}-\d{2}-\d{2}$/.test(task.date) ? task.date : "";
+        return {
+          ...task,
+          startDate: task.startDate || legacyDate || new Date().toLocaleDateString("en-CA"),
+          deadlineDate: task.deadlineDate || legacyDate || new Date().toLocaleDateString("en-CA"),
+          done: Boolean(task.done),
+        };
+      });
+  } catch (error) {
+    console.error("Unable to load saved tasks:", error);
+    return [];
+  }
+};
 
 const DEFAULT_LEAVE_HISTORY = [
   {
@@ -183,105 +215,48 @@ export default function App() {
     overall: { remaining: totalRemaining, total: totalCapacity, used: totalUsed },
   };
 
-  // Shared Tasks State
-  const [tasks, setTasks] = useState([
-    {
-      id: 1,
-      text: "Complete UI Review for HR Module",
-      date: "Today",
-      tagBg: "#fef2f2",
-      tagColor: "#ef4444",
-      done: false,
-    },
-    {
-      id: 2,
-      text: "Update Project Documentation",
-      date: "Today",
-      tagBg: "#eff6ff",
-      tagColor: "#2563eb",
-      done: true,
-    },
-    {
-      id: 3,
-      text: "Attend Design Sync Meeting",
-      date: "Tomorrow",
-      tagBg: "#fef3c7",
-      tagColor: "#d97706",
-      done: false,
-    },
-    {
-      id: 4,
-      text: "Share Assets with Dev Team",
-      date: "3 Oct",
-      tagBg: "#f1f5f9",
-      tagColor: "#64748b",
-      done: false,
-    },
-    {
-      id: 5,
-      text: "Submit Timesheet",
-      date: "Completed",
-      tagBg: "#dcfce7",
-      tagColor: "#166534",
-      done: true,
-    },
-  ]);
+  // Shared Tasks State: App is the single source of truth for both pages.
+  // Starts empty unless the user has previously created and saved tasks.
+  const [tasks, setTasks] = useState(loadUserTasks);
 
-  const handleAddTask = (text, dateValue = new Date().toISOString().split("T")[0]) => {
-    const todayStr = new Date().toISOString().split("T")[0];
-    const yesterdayObj = new Date();
-    yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-    const yesterdayStr = yesterdayObj.toISOString().split("T")[0];
-
-    const tomorrowObj = new Date();
-    tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-    const tomorrowStr = tomorrowObj.toISOString().split("T")[0];
-
-    let displayLabel = dateValue;
-    let tagBg = "#f1f5f9";
-    let tagColor = "#64748b";
-
-    if (dateValue === todayStr) {
-      displayLabel = "Today";
-      tagBg = "#fef2f2";
-      tagColor = "#ef4444";
-    } else if (dateValue === yesterdayStr) {
-      displayLabel = "Yesterday";
-      tagBg = "#f3e8ff";
-      tagColor = "#7e22ce";
-    } else if (dateValue === tomorrowStr) {
-      displayLabel = "Tomorrow";
-      tagBg = "#fef3c7";
-      tagColor = "#d97706";
-    } else if (dateValue < todayStr) {
-      const d = new Date(dateValue);
-      displayLabel = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-      tagBg = "#f3e8ff";
-      tagColor = "#7e22ce";
-    } else {
-      const d = new Date(dateValue);
-      displayLabel = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-      tagBg = "#eff6ff";
-      tagColor = "#2563eb";
+  useEffect(() => {
+    try {
+      localStorage.setItem(TASK_STORAGE_KEY, JSON.stringify(tasks));
+    } catch (error) {
+      console.error("Unable to save tasks:", error);
     }
+  }, [tasks]);
 
+  const handleAddTask = (text, startDate, deadlineDate) => {
+    const trimmedText = String(text || "").trim();
+    if (!trimmedText) return;
+
+    // Dashboard's quick-add form supplies one date; My Tasks supplies a date range.
+    const start = startDate || new Date().toLocaleDateString("en-CA");
+    const deadline = deadlineDate || start;
     const newTask = {
-      id: Date.now(),
-      text,
-      date: displayLabel,
-      tagBg,
-      tagColor,
+      id: typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `task_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      text: trimmedText,
+      startDate: start,
+      deadlineDate: deadline,
+      date: deadline,
       done: false,
+      createdAt: new Date().toISOString(),
     };
-    setTasks([newTask, ...tasks]);
+
+    setTasks((previous) => [newTask, ...previous]);
   };
 
   const handleToggleTask = (id) => {
-    setTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+    setTasks((previous) =>
+      previous.map((task) => task.id === id ? { ...task, done: !task.done } : task)
+    );
   };
 
   const handleDeleteTask = (id) => {
-    setTasks(tasks.filter((t) => t.id !== id));
+    setTasks((previous) => previous.filter((task) => task.id !== id));
   };
 
   const handleLogout = () => setIsAuthenticated(false);

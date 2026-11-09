@@ -14,10 +14,53 @@ const LEAVE_STORAGE_KEY = "workx_leave_history_v4";
 const LEAVE_UPDATED_EVENT = "leaveHistoryUpdated";
 
 const LEAVE_TYPES = [
-  { type: "Casual Leave", key: "casual", total: 12, color: "#0066FF", bg: "#eff6ff" },
-  { type: "Sick Leave", key: "sick", total: 10, color: "#10b981", bg: "#ecfdf5" },
-  { type: "Earned Leave", key: "earned", total: 15, color: "#8b5cf6", bg: "#f5f3ff" },
+  { type: "Emergency Leave", key: "emergency", total: 6, color: "#f97316", bg: "#fff7ed" },
+  { type: "Planned Leave", key: "planned", total: 12, color: "#0066FF", bg: "#eff6ff" },
+  { type: "Paid Leave", key: "paid", total: 12, color: "#10b981", bg: "#ecfdf5" },
+  { type: "Birthday Leave", key: "birthday", total: 1, color: "#8b5cf6", bg: "#f5f3ff" },
 ];
+
+const addMonths = (date, months) => {
+  const result = new Date(date);
+  const day = result.getDate();
+  result.setMonth(result.getMonth() + months);
+  if (result.getDate() < day) result.setDate(0);
+  return result;
+};
+
+const getRequestDays = (type, from, to) => {
+  if (type === "Birthday Leave") return 1;
+
+  const start = toDateOnly(from);
+  const end = toDateOnly(to);
+  if (!start || !end || end < start) return 0;
+
+  // Sandwich rule: if the requested leave includes a Monday or Friday,
+  // the adjoining weekend is included in the deduction.
+  let hasMondayOrFriday = false;
+  const scan = new Date(start);
+  while (scan <= end) {
+    const day = scan.getDay();
+    if (day === 1 || day === 5) {
+      hasMondayOrFriday = true;
+      break;
+    }
+    scan.setDate(scan.getDate() + 1);
+  }
+
+  if (!hasMondayOrFriday) return countWorkingDays(from, to);
+
+  const adjustedStart = new Date(start);
+  const adjustedEnd = new Date(end);
+
+  // A Monday-only request includes the preceding Saturday and Sunday.
+  if (adjustedStart.getDay() === 1) adjustedStart.setDate(adjustedStart.getDate() - 2);
+  // A Friday-only request includes the following Saturday and Sunday.
+  if (adjustedEnd.getDay() === 5) adjustedEnd.setDate(adjustedEnd.getDate() + 2);
+
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((adjustedEnd - adjustedStart) / millisecondsPerDay) + 1;
+};
 
 const readLeaveStorage = () => {
   try {
@@ -121,9 +164,11 @@ export default function LeavePage({
   leaveHistory = [],
   setLeaveHistory,
   leaveSummary = {},
+  employeeJoiningDate = "",
+  employeeBirthday = "",
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formType, setFormType] = useState("Casual Leave");
+  const [formType, setFormType] = useState("Emergency Leave");
   const [formFrom, setFormFrom] = useState("");
   const [formTo, setFormTo] = useState("");
   const [formReason, setFormReason] = useState("");
@@ -154,22 +199,32 @@ export default function LeavePage({
   }, [safeHistory]);
 
   const calculatedDays = useMemo(
-    () => countWorkingDays(formFrom, formTo),
-    [formFrom, formTo]
+    () => getRequestDays(formType, formFrom, formTo),
+    [formType, formFrom, formTo]
   );
+
+  const currentYear = new Date().getFullYear();
+  const joiningDate = toDateOnly(employeeJoiningDate);
+  const probationCompleted = joiningDate
+    ? new Date() >= addMonths(joiningDate, 3)
+    : null;
 
   const leaveBalances = useMemo(() => {
     return LEAVE_TYPES.map((leaveType) => {
       const approvedDays = safeHistory
-        .filter(
-          (item) =>
+        .filter((item) => {
+          const leaveStart = toDateOnly(item.from);
+          return (
             item.type === leaveType.type &&
-            item.status === "Approved"
-        )
+            item.status === "Approved" &&
+            leaveStart &&
+            leaveStart.getFullYear() === currentYear
+          );
+        })
         .reduce((total, item) => {
-          // Recalculate from the actual dates so older/manual entries also work.
-          const days = countWorkingDays(item.from, item.to);
-          return total + (days || Number(item.days) || 0);
+          // Prefer the saved deduction so sandwich weekends remain included.
+          const days = Number(item.days) || getRequestDays(item.type, item.from, item.to);
+          return total + days;
         }, 0);
 
       const supplied = leaveSummary?.[leaveType.key];
@@ -220,6 +275,36 @@ export default function LeavePage({
       return;
     }
 
+    if (start.getFullYear() !== end.getFullYear()) {
+      setFormError("Please submit separate leave requests for dates in different calendar years.");
+      return;
+    }
+
+    if (formType === "Paid Leave" && probationCompleted === false) {
+      setFormError("Paid Leave becomes available only after completing 3 months of probation.");
+      return;
+    }
+    if (formType === "Paid Leave" && probationCompleted === null) {
+      setFormError("Add the employee joining date to verify 3-month probation eligibility.");
+      return;
+    }
+
+    if (formType === "Birthday Leave") {
+      if (!employeeBirthday) {
+        setFormError("Add the employee birthday in the employee profile before applying for Birthday Leave.");
+        return;
+      }
+      const birthday = toDateOnly(employeeBirthday);
+      const selected = toDateOnly(formFrom);
+      if (!birthday || !selected ||
+          birthday.getMonth() !== selected.getMonth() ||
+          birthday.getDate() !== selected.getDate() ||
+          formFrom !== formTo) {
+        setFormError("Birthday Leave can be requested for one day only, on the employee's birthday.");
+        return;
+      }
+    }
+
     const days = calculatedDays;
     if (days < 1) {
       setFormError("The selected date range contains no working days.");
@@ -260,7 +345,7 @@ export default function LeavePage({
 
     updateHistory((previous) => [newLeave, ...previous]);
     setIsModalOpen(false);
-    setFormType("Casual Leave");
+    setFormType("Emergency Leave");
     setFormFrom("");
     setFormTo("");
     setFormReason("");
@@ -306,72 +391,253 @@ export default function LeavePage({
       }}
     >
       <style>{`
-        .leave-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 16px;
-        }
-        .leave-table-wrap {
-          width: 100%;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-        }
-        .leave-table {
-          width: 100%;
-          min-width: 760px;
-          border-collapse: collapse;
-          text-align: left;
-          font-size: 13.5px;
-        }
-        .leave-form-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
-        }
-        .leave-input {
-          width: 100%;
-          box-sizing: border-box;
-          padding: 10px;
-          border-radius: 8px;
-          border: 1px solid #cbd5e1;
-          outline: none;
-          font-size: 13.5px;
-          background: #fff;
-          color: #0f172a;
-        }
-        .leave-input:focus {
-          border-color: #0066ff;
-          box-shadow: 0 0 0 3px rgba(0,102,255,.10);
-        }
-        .leave-action {
-          border: 0;
-          border-radius: 6px;
-          padding: 6px 9px;
-          font-size: 11px;
-          font-weight: 600;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        @media (max-width: 600px) {
-          .leave-header {
-            align-items: flex-start !important;
-            flex-direction: column !important;
-          }
-          .leave-header button {
-            width: 100%;
-            justify-content: center;
-          }
-          .leave-form-grid {
-            grid-template-columns: 1fr !important;
-          }
-          .leave-modal-panel {
-            padding: 18px !important;
-            max-height: 92vh;
-            overflow-y: auto;
-          }
-        }
-      `}</style>
+  .leave-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+  .leave-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .leave-table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13.5px;
+  }
+  .leave-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .leave-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    outline: none;
+    font-size: 13.5px;
+    background: #fff;
+    color: #0f172a;
+  }
+  .leave-input:focus {
+    border-color: #0066ff;
+    box-shadow: 0 0 0 3px rgba(0,102,255,.10);
+  }
+  .leave-action {
+    border: 0;
+    border-radius: 6px;
+    padding: 6px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .leave-policy-panel {
+    background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+    border: 1px solid #dbe6f3;
+    border-radius: 16px;
+    padding: 20px 22px;
+    box-shadow: 0 5px 18px rgba(15, 23, 42, 0.035);
+  }
+  .leave-policy-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .leave-policy-icon {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    color: #075fe5;
+    background: #eaf2ff;
+    flex: 0 0 auto;
+  }
+  .leave-policy-heading h3 { margin: 0; color: #0f172a; font-size: 15px; font-weight: 750; }
+  .leave-policy-heading p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+  .leave-policy-reset {
+    margin-left: auto;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .leave-policy-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .leave-policy-item {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid #e7edf5;
+    border-radius: 12px;
+    background: #fff;
+  }
+  .leave-policy-number {
+    width: 39px;
+    height: 39px;
+    flex: 0 0 39px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -.5px;
+  }
+  .leave-policy-item strong { display: block; color: #1e293b; font-size: 12px; line-height: 1.35; }
+  .leave-policy-item small { display: block; margin-top: 3px; color: #64748b; font-size: 10.5px; line-height: 1.45; }
+  .leave-policy-item.emergency .leave-policy-number { color: #ea580c; background: #fff1e8; }
+  .leave-policy-item.planned .leave-policy-number { color: #2563eb; background: #eff6ff; }
+  .leave-policy-item.paid .leave-policy-number { color: #059669; background: #ecfdf5; }
+  .leave-policy-item.birthday .leave-policy-number { color: #7c3aed; background: #f5f3ff; }
+
+  /* Upgraded Sandwich Note Styles */
+  .leave-sandwich-note {
+    position: relative;
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    align-items: flex-start;
+    gap: 16px;
+    margin-top: 18px;
+    padding: 20px 22px;
+    overflow: hidden;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 16px;
+    background: linear-gradient(135deg, #fffbeb 0%, #fff7ed 60%, #fffaf0 100%);
+    box-shadow: 0 4px 16px rgba(217, 119, 6, 0.06);
+    transition: all 0.2s ease;
+  }
+  .leave-sandwich-note:hover {
+    box-shadow: 0 6px 20px rgba(217, 119, 6, 0.1);
+    border-color: rgba(245, 158, 11, 0.4);
+  }
+  .leave-sandwich-note::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    background: linear-gradient(180deg, #f59e0b, #ea580c);
+  }
+  .leave-sandwich-icon {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 12px;
+    color: #ea580c;
+    background: #ffffff;
+    box-shadow: 0 2px 6px rgba(234, 88, 12, 0.08);
+    flex: 0 0 auto;
+  }
+  .leave-sandwich-copy { 
+    min-width: 0; 
+  }
+  .leave-sandwich-title-row { 
+    display: flex; 
+    align-items: center; 
+    gap: 10px; 
+    flex-wrap: wrap; 
+    margin-bottom: 4px;
+  }
+  .leave-sandwich-note strong { 
+    color: #7c2d12; 
+    font-size: 14px; 
+    font-weight: 750; 
+    letter-spacing: -0.2px; 
+  }
+  .leave-sandwich-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border: 1px solid rgba(249, 115, 22, 0.25);
+    border-radius: 999px;
+    color: #c2410c;
+    background: rgba(255, 255, 255, 0.85);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+  .leave-sandwich-note p { 
+    margin: 4px 0 0; 
+    color: #78350f; 
+    font-size: 13px; 
+    line-height: 1.6; 
+  }
+  .leave-sandwich-note p + p { 
+    margin-top: 6px; 
+    color: #9a3412; 
+  }
+  .leave-sandwich-note b { 
+    color: #9a3412; 
+    font-weight: 800; 
+    background: rgba(251, 191, 36, 0.15);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+
+  /* Media Queries */
+  @media (max-width: 900px) {
+    .leave-policy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 600px) {
+    .leave-policy-panel { padding: 16px; }
+    .leave-policy-heading { align-items: flex-start; flex-wrap: wrap; }
+    .leave-policy-reset { margin-left: 54px; }
+    .leave-policy-grid { grid-template-columns: 1fr; }
+    .leave-header {
+      align-items: flex-start !important;
+      flex-direction: column !important;
+    }
+    .leave-header button {
+      width: 100%;
+      justify-content: center;
+    }
+    .leave-form-grid {
+      grid-template-columns: 1fr !important;
+    }
+    .leave-modal-panel {
+      padding: 18px !important;
+      max-height: 92vh;
+      overflow-y: auto;
+    }
+    .leave-sandwich-note { 
+      grid-template-columns: 40px minmax(0, 1fr); 
+      gap: 12px; 
+      padding: 16px; 
+    }
+    .leave-sandwich-icon { 
+      width: 40px; 
+      height: 40px; 
+      border-radius: 10px; 
+    }
+    .leave-sandwich-tag { 
+      grid-column: 2; 
+      justify-self: start; 
+    }
+    .leave-sandwich-note p { 
+      font-size: 12px; 
+    }
+  }
+`}</style>
 
       {/* HEADER */}
       <div
@@ -386,7 +652,7 @@ export default function LeavePage({
         <div>
           <h2 style={{ color: "#ffffff", margin: 0 }}>Leave Management</h2>
           <p style={{ color: "#cbd5e1", margin: "8px 0 0 0", fontSize: "13.5px" }}>
-            Track your leave balances, view history, or apply for new time off.
+            Annual leave balances reset every year. Unused leave is not carried forward.
           </p>
         </div>
 
@@ -426,6 +692,48 @@ export default function LeavePage({
           {notice}
         </div>
       )}
+
+      <section className="leave-policy-panel" aria-label="Leave policy overview">
+        <div className="leave-policy-heading">
+          <div className="leave-policy-icon"><Calendar size={19} /></div>
+          <div>
+            <h3>Leave policy overview</h3>
+            <p>Annual entitlements and important rules</p>
+          </div>
+          <span className="leave-policy-reset">Annual reset · No carry-forward</span>
+        </div>
+
+        <div className="leave-policy-grid">
+          <div className="leave-policy-item emergency">
+            <span className="leave-policy-number">06</span>
+            <div><strong>Emergency leave</strong><small>days per year · inform 2 hours in advance</small></div>
+          </div>
+          <div className="leave-policy-item planned">
+            <span className="leave-policy-number">12</span>
+            <div><strong>Planned leave</strong><small>days per year</small></div>
+          </div>
+          <div className="leave-policy-item paid">
+            <span className="leave-policy-number">12</span>
+            <div><strong>Paid leave</strong><small>days per year · after 3-month probation</small></div>
+          </div>
+          <div className="leave-policy-item birthday">
+            <span className="leave-policy-number">01</span>
+            <div><strong>Birthday leave</strong><small>day on the employee's birthday</small></div>
+          </div>
+        </div>
+
+        <div className="leave-sandwich-note">
+          <div className="leave-sandwich-icon"><Calendar size={19} /></div>
+          <div className="leave-sandwich-copy">
+            <div className="leave-sandwich-title-row">
+              <strong>Sandwich Leave Rule</strong>
+              <span className="leave-sandwich-tag">Weekend deduction applies</span>
+            </div>
+            <p>Taking leave on Friday or Monday includes the adjoining Saturday and Sunday. A single Friday or Monday leave is counted as <b>3 days</b>.</p>
+            <p>Taking leave on the 1st or 3rd Saturday will result in a deduction of <b>2 days</b> from the leave balance.</p>
+          </div>
+        </div>
+      </section>
 
       {/* DYNAMIC LEAVE BALANCE CARDS */}
       <div
@@ -569,7 +877,7 @@ export default function LeavePage({
                         {formatDate(item.to)}
                       </td>
                       <td style={{ padding: "14px 16px", color: "#475569" }}>
-                        {countWorkingDays(item.from, item.to) || item.days || 0} day(s)
+                        {Number(item.days) || getRequestDays(item.type, item.from, item.to)} day(s)
                       </td>
                       <td
                         title={item.reason}
@@ -726,6 +1034,27 @@ export default function LeavePage({
                 </select>
               </div>
 
+              {formType === "Emergency Leave" && (
+                <div style={{ background: "#fff7ed", color: "#9a3412", padding: "10px 12px", borderRadius: 8, fontSize: 12 }}>
+                  Emergency Leave allowance: 6 days per year. Employee must inform the manager at least 2 hours before the leave.
+                </div>
+              )}
+              {formType === "Planned Leave" && (
+                <div style={{ background: "#eff6ff", color: "#1d4ed8", padding: "10px 12px", borderRadius: 8, fontSize: 12 }}>
+                  Planned Leave allowance: 12 days per year.
+                </div>
+              )}
+              {formType === "Paid Leave" && (
+                <div style={{ background: "#ecfdf5", color: "#047857", padding: "10px 12px", borderRadius: 8, fontSize: 12 }}>
+                  Paid Leave allowance: 12 days per year, available after 3 months of probation.
+                </div>
+              )}
+              {formType === "Birthday Leave" && (
+                <div style={{ background: "#f5f3ff", color: "#6d28d9", padding: "10px 12px", borderRadius: 8, fontSize: 12 }}>
+                  Birthday Leave: one day on the employee's birthday. Employee birthday must be configured in the profile.
+                </div>
+              )}
+
               <div className="leave-form-grid">
                 <div>
                   <label
@@ -788,9 +1117,9 @@ export default function LeavePage({
                   fontSize: "12px",
                 }}
               >
-                Calculated leave: <strong>{calculatedDays} working day(s)</strong>
+                Calculated deduction: <strong>{calculatedDays} day(s)</strong>
                 <div style={{ color: "#64748b", marginTop: "3px" }}>
-                  Saturdays and Sundays are excluded. Company holidays are not yet connected.
+                  If your leave includes a Friday or Monday, the adjoining weekend is included under the sandwich rule. Company holidays are not yet connected.
                 </div>
               </div>
 

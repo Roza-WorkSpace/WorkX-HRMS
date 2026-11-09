@@ -19,6 +19,7 @@ import TasksPage from "./pages/TasksPage";
 import ProfilePage from "./pages/ProfilePage";
 import LeavePage from "./pages/LeavePage";
 import AttendancePage from "./pages/AttendancePage";
+import PayslipsPage from "./pages/PayslipsPage";
 
 function WorkXLogo({ logoUrl = logoImg }) {
   const [imageError, setImageError] = useState(false);
@@ -100,7 +101,6 @@ const loadUserTasks = () => {
     if (!saved) return [];
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
-    // Remove the old demo/sample tasks while keeping tasks actually created by users.
     return parsed
       .filter((task) => !SAMPLE_TASK_TITLES.has(String(task?.text || "").trim()))
       .map((task) => {
@@ -148,7 +148,6 @@ const DEFAULT_LEAVE_HISTORY = [
   },
 ];
 
-// UPDATED TO TOTAL 12 DAYS (4 + 3 + 5)
 const LEAVE_TOTALS = {
   "Casual Leave": 4,
   "Sick Leave": 3,
@@ -168,7 +167,6 @@ export default function App() {
   const [profileSavedMsg, setProfileSavedMsg] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Shared Leave History State
   const [leaveHistory, setLeaveHistory] = useState(() => {
     try {
       const saved = localStorage.getItem(LEAVE_STORAGE_KEY);
@@ -182,7 +180,6 @@ export default function App() {
     localStorage.setItem(LEAVE_STORAGE_KEY, JSON.stringify(leaveHistory));
   }, [leaveHistory]);
 
-  // Dynamic Leave Calculation Logic
   const getUsedLeave = (leaveType) => {
     const initialUsed = INITIAL_USED_BALANCE[leaveType] || 0;
     const currentApproved = leaveHistory
@@ -204,7 +201,7 @@ export default function App() {
   const earnedTotal = LEAVE_TOTALS["Earned Leave"];
   const earnedRemaining = Math.max(earnedTotal - earnedUsed, 0);
 
-  const totalCapacity = casualTotal + sickTotal + earnedTotal; // TOTAL: 12
+  const totalCapacity = casualTotal + sickTotal + earnedTotal;
   const totalUsed = casualUsed + sickUsed + earnedUsed;
   const totalRemaining = casualRemaining + sickRemaining + earnedRemaining;
 
@@ -215,8 +212,6 @@ export default function App() {
     overall: { remaining: totalRemaining, total: totalCapacity, used: totalUsed },
   };
 
-  // Shared Tasks State: App is the single source of truth for both pages.
-  // Starts empty unless the user has previously created and saved tasks.
   const [tasks, setTasks] = useState(loadUserTasks);
 
   useEffect(() => {
@@ -231,7 +226,6 @@ export default function App() {
     const trimmedText = String(text || "").trim();
     if (!trimmedText) return;
 
-    // Dashboard's quick-add form supplies one date; My Tasks supplies a date range.
     const start = startDate || new Date().toLocaleDateString("en-CA");
     const deadline = deadlineDate || start;
     const newTask = {
@@ -434,6 +428,7 @@ export default function App() {
               leaveSummary={leaveSummary}
             />
           )}
+          {activePage === "payslips" && <PayslipsPage userProfile={userProfile} />}
         </div>
       </main>
     </div>

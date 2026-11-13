@@ -1,5 +1,5 @@
 import { useState } from "react";
-import logoImg from "../assets/WorkX_Concepts-07.png";
+import logoImg from "../assets/Work X_Concepts-08.png";
 
 export default function LoginPage({ onLogin }) {
   const [authView, setAuthView] = useState("login");
@@ -12,8 +12,6 @@ export default function LoginPage({ onLogin }) {
   const handleSubmit = (event) => {
     event.preventDefault();
 
-    // UI-only flow: connect this handler to your authentication API
-    // before using this screen with real employee accounts.
     if (isLogin) {
       onLogin?.();
     } else {
@@ -70,6 +68,20 @@ export default function LoginPage({ onLogin }) {
           boxSizing: "border-box",
         }}
       >
+        {/* Centered Logo */}
+        <div style={{ marginBottom: "24px", textAlign: "center", display: "flex", justifyContent: "center" }}>
+          <img
+            src={logoImg}
+            alt="WorkX Logo"
+            style={{
+              height: "40px",
+              width: "auto",
+              objectFit: "contain",
+            }}
+          />
+        </div>
+
+        {/* Centered Title */}
         <h2
           style={{
             margin: "0 0 10px",
@@ -77,19 +89,20 @@ export default function LoginPage({ onLogin }) {
             fontSize: "clamp(22px, 5vw, 28px)",
             lineHeight: 1.2,
             fontWeight: 700,
-            textAlign: "left",
+            textAlign: "center",
           }}
         >
           {isLogin ? "Welcome Back" : "Create Account"}
         </h2>
 
+        {/* Centered Subtitle */}
         <p
           style={{
             margin: "0 0 clamp(24px, 5vw, 36px)",
             color: "#64748b",
             fontSize: "15px",
             lineHeight: 1.5,
-            textAlign: "left",
+            textAlign: "center",
           }}
         >
           {isLogin
